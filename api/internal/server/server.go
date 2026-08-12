@@ -6,19 +6,22 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+
+	"github.com/maazinshaikh/overlap/api/internal/store"
 )
 
 // Server holds everything a handler might need. Dependencies are injected
 // rather than reached for through globals, so a test can build a Server with
 // fakes and exercise Routes() through httptest.
 type Server struct {
-	cfg Config
-	log *slog.Logger
+	cfg   Config
+	log   *slog.Logger
+	store *store.Store
 }
 
 // New returns a Server. It does no IO, so it cannot fail.
-func New(cfg Config, log *slog.Logger) *Server {
-	return &Server{cfg: cfg, log: log}
+func New(cfg Config, log *slog.Logger, st *store.Store) *Server {
+	return &Server{cfg: cfg, log: log, store: st}
 }
 
 // Routes builds the handler tree. Middleware is applied outermost-first:
@@ -27,11 +30,19 @@ func New(cfg Config, log *slog.Logger) *Server {
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 
-	// Go 1.22+ pattern syntax: method and path in one string. Enough routing
-	// for the whole API; chi arrives only if this stops being true.
+	// Go 1.22+ pattern syntax: method and path in one string, with {slug}
+	// wildcards read back via r.PathValue. Enough routing for the whole API;
+	// chi arrives only if this stops being true.
 	mux.HandleFunc("GET /api/health", s.handleHealth)
+	mux.HandleFunc("POST /api/events", s.handleCreateEvent)
+	mux.HandleFunc("GET /api/events/{slug}", s.handleGetEvent)
 
 	return s.recoverPanic(s.logRequests(s.cors(mux)))
+}
+
+// writeError renders an error in the one shape every client can rely on.
+func (s *Server) writeError(w http.ResponseWriter, r *http.Request, status int, msg string) {
+	s.writeJSON(w, r, status, map[string]string{"error": msg})
 }
 
 // handleHealth is a liveness probe, not a readiness probe. It deliberately does

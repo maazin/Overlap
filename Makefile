@@ -6,8 +6,10 @@ SHELL := /bin/bash
 # in a driver for every database it supports, and none of that belongs in the
 # API's dependency graph.
 GOOSE_VERSION := v3.27.3
+SQLC_VERSION  := v1.31.1
 BIN           := $(CURDIR)/bin
 GOOSE         := $(BIN)/goose
+SQLC          := $(BIN)/sqlc
 
 DATABASE_URL ?= postgres://overlap:overlap@localhost:5434/overlap?sslmode=disable
 MIGRATIONS   := $(CURDIR)/api/migrations
@@ -22,8 +24,11 @@ help: ## List targets
 $(GOOSE):
 	GOBIN=$(BIN) go install github.com/pressly/goose/v3/cmd/goose@$(GOOSE_VERSION)
 
+$(SQLC):
+	GOBIN=$(BIN) go install github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION)
+
 .PHONY: tools
-tools: $(GOOSE) ## Install pinned dev tools into ./bin
+tools: $(GOOSE) $(SQLC) ## Install pinned dev tools into ./bin
 
 # --- database ----------------------------------------------------------------
 
@@ -65,6 +70,14 @@ api: ## Run the API on :8080
 .PHONY: test
 test: ## Run Go tests with the race detector
 	cd api && go test -race ./...
+
+.PHONY: test-integration
+test-integration: db-up migrate ## Run tests that need a real Postgres
+	cd api && TEST_DATABASE_URL="$(DATABASE_URL)" go test -race -count=1 ./...
+
+.PHONY: sqlc
+sqlc: $(SQLC) ## Regenerate typed queries from SQL
+	cd api && $(SQLC) generate
 
 .PHONY: check
 check: ## Vet, format-check and test

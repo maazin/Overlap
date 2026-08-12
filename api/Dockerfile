@@ -24,11 +24,11 @@ FROM scratch
 
 # Needed to dial Postgres and Google's APIs over TLS; scratch has no trust store.
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-# Go's time package reads the zoneinfo database at runtime for LoadLocation.
-# Without this every non-UTC timezone lookup fails, which would quietly break
-# the entire slot model.
-COPY --from=build /usr/local/go/lib/time/zoneinfo.zip /usr/local/go/lib/time/
 
+# No zoneinfo is copied in: cmd/api imports time/tzdata, so the binary carries
+# the database itself. That keeps the timezone model working regardless of what
+# the base image provides, and startup fails loudly via tz.Available if it ever
+# stops being true.
 COPY --from=build /out/api /api
 
 ENV PORT=8080

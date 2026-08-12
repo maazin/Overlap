@@ -11,8 +11,13 @@ Build plan and rationale live in `OVERLAP-PRD.md`.
 api/                 Go 1.26 HTTP API — deploys to Fly.io
   cmd/api/           main, lifecycle, graceful shutdown
   internal/server/   config, routing, middleware, handlers
+  internal/slots/    pure window -> absolute instant expansion (DST lives here)
   internal/solver/   pure scoring and dominance engine (no IO, no clock)
+  internal/store/    the only package that talks to Postgres
+  internal/dbgen/    sqlc-generated, do not edit
+  internal/tz/       IANA zone resolution for untrusted names
   migrations/        goose SQL migrations
+  queries/           SQL that sqlc generates from
 web/                 SvelteKit 2 / Svelte 5 — deploys to Vercel
 docker-compose.yml   local Postgres 16 on :5434
 Makefile             every routine command
@@ -20,7 +25,7 @@ Makefile             every routine command
 
 ## Prerequisites
 
-Go 1.26+, Node 20+, Docker. `make tools` fetches a pinned `goose` into `./bin`.
+Go 1.26+, Node 20+, Docker. `make tools` fetches pinned `goose` and `sqlc` binaries into `./bin`.
 
 ## Running locally
 
@@ -41,12 +46,32 @@ taken on the machine this was set up on. Change it in `docker-compose.yml`,
 ## Testing
 
 ```bash
-make check          # go vet + gofmt check + go test -race
+make check              # go vet + gofmt check + go test -race, no infrastructure
+make test-integration   # the above plus tests that need real Postgres
 ```
+
+Integration tests skip themselves unless `TEST_DATABASE_URL` is set, so
+`go test ./...` stays runnable with nothing running.
 
 The solver is the part worth testing hardest, and it is written to make that
 easy: pure functions over plain structs, no database, no clock reads, time
 enters only as a parameter.
+
+## API
+
+```
+GET  /api/health          liveness only; deliberately does not touch Postgres
+POST /api/events          create an event, returns { slug }
+GET  /api/events/{slug}   event plus its expanded slots as UTC instants
+```
+
+Slots come back as absolute instants and are rendered in the viewer's zone by
+the client. The server never guesses who is looking.
+
+`GET` also returns `dst_notes` when the window crossed a transition, naming any
+local time that was dropped because it never occurred, or that occurred twice
+and was resolved to its first occurrence. Silence about either would mean
+handing back a schedule that does not match what was asked for.
 
 ## Deploying
 

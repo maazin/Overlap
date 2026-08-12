@@ -9,11 +9,15 @@ import (
 	"testing"
 )
 
+// testServer builds a Server with no store. Everything it exercises — health,
+// CORS, routing, panic containment — runs before any handler touches Postgres,
+// so the nil is load-bearing rather than lazy: these tests would still pass
+// with the database switched off.
 func testServer() *Server {
 	return New(Config{
 		Env:            "test",
 		AllowedOrigins: []string{"http://localhost:5173"},
-	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 }
 
 func TestHealthReturnsOK(t *testing.T) {

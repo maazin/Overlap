@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -12,7 +13,15 @@ import (
 	"syscall"
 	"time"
 
+	// Embeds the IANA timezone database in the binary. The production image is
+	// built FROM scratch and has no /usr/share/zoneinfo, and every slot in this
+	// product is derived from a named zone. Relying on the base image to supply
+	// one is a dependency that fails silently and totally.
+	_ "time/tzdata"
+
 	"github.com/maazinshaikh/overlap/api/internal/server"
+	"github.com/maazinshaikh/overlap/api/internal/store"
+	"github.com/maazinshaikh/overlap/api/internal/tz"
 )
 
 func main() {
@@ -36,9 +45,28 @@ func run(logger *slog.Logger) error {
 
 	cfg := server.ConfigFromEnv()
 
+	// Checked before anything else because a missing zone database makes every
+	// event unschedulable, and the resulting errors point at the request rather
+	// than at the real cause.
+	if err := tz.Available(); err != nil {
+		return err
+	}
+
+	if cfg.DatabaseURL == "" {
+		return errors.New("DATABASE_URL is not set")
+	}
+
+	// Connecting before listening means a bad database URL is a startup
+	// failure the deploy will show, not a 500 on the first real request.
+	st, err := store.New(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return fmt.Errorf("connect store: %w", err)
+	}
+	defer st.Close()
+
 	srv := &http.Server{
 		Addr:    cfg.Addr,
-		Handler: server.New(cfg, logger).Routes(),
+		Handler: server.New(cfg, logger, st).Routes(),
 
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,

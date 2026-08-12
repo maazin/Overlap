@@ -1,0 +1,16 @@
+version: "2"
+sql:
+  - engine: postgresql
+    # sqlc reads the goose migrations directly, so the generated types can never
+    # drift from the schema that actually ran.
+    schema: migrations
+    queries: queries
+    gen:
+      go:
+        package: dbgen
+        out: internal/dbgen
+        sql_package: pgx/v5
+        emit_json_tags: false
+        emit_prepared_queries: false
+        emit_interface: true
+        emit_empty_slices: true
