@@ -145,3 +145,53 @@ export const putResponses = (slug: string, token: string, body: PutResponsesBody
 		headers: { 'X-Participant-Token': token },
 		body: JSON.stringify(body)
 	});
+
+/**
+ * One scored slot.
+ *
+ * There is no score field, deliberately. The composite orders the list on the
+ * server and never leaves it, because a number next to a time reads as
+ * precision the model does not have.
+ */
+export type RankedSlot = {
+	slot_start: string;
+	coverage: number;
+	total: number;
+	eliminated: boolean;
+	eliminated_by?: string[];
+	excludes?: string[];
+	unknown?: string[];
+	unsociable: boolean;
+};
+
+export type SolveView = {
+	slug: string;
+	status: string;
+	responded: number;
+	total: number;
+	ranked: RankedSlot[];
+	decided_slot_start?: string;
+};
+
+export const solve = (slug: string) =>
+	request<SolveView>(`/api/events/${encodeURIComponent(slug)}/solve`);
+
+export const decide = (slug: string, token: string, slotStart: string, force = false) =>
+	request<{ slug: string; status: string; decided_slot_start: string }>(
+		`/api/events/${encodeURIComponent(slug)}/decide`,
+		{
+			method: 'POST',
+			headers: { 'X-Participant-Token': token },
+			body: JSON.stringify({ slot_start: slotStart, force })
+		}
+	);
+
+export const reopen = (slug: string, token: string) =>
+	request<{ slug: string; status: string }>(`/api/events/${encodeURIComponent(slug)}/reopen`, {
+		method: 'POST',
+		headers: { 'X-Participant-Token': token }
+	});
+
+/** The .ics is fetched by the browser directly, so this is a plain URL. */
+export const icsURL = (slug: string) =>
+	`${API_URL}/api/events/${encodeURIComponent(slug)}/decided.ics`;

@@ -13,6 +13,7 @@ import (
 type Querier interface {
 	CreateEvent(ctx context.Context, arg CreateEventParams) (Event, error)
 	CreateParticipant(ctx context.Context, arg CreateParticipantParams) (Participant, error)
+	DecideEvent(ctx context.Context, arg DecideEventParams) (Event, error)
 	DeleteResponsesForParticipant(ctx context.Context, participantID pgtype.UUID) error
 	GetEventBySlug(ctx context.Context, slug string) (Event, error)
 	GetParticipantByToken(ctx context.Context, arg GetParticipantByTokenParams) (Participant, error)
@@ -21,6 +22,7 @@ type Querier interface {
 	ListResponsesForEvent(ctx context.Context, eventID pgtype.UUID) ([]Response, error)
 	ListResponsesForParticipant(ctx context.Context, participantID pgtype.UUID) ([]Response, error)
 	MarkParticipantResponded(ctx context.Context, id pgtype.UUID) error
+	ReopenEvent(ctx context.Context, id pgtype.UUID) (Event, error)
 }
 
 var _ Querier = (*Queries)(nil)

@@ -11,10 +11,15 @@ import (
 // It is a plain struct with no behaviour so that tests can construct one
 // directly instead of setting environment variables.
 type Config struct {
-	Addr            string
-	Env             string
-	DatabaseURL     string
-	AllowedOrigins  []string
+	Addr           string
+	Env            string
+	DatabaseURL    string
+	AllowedOrigins []string
+
+	// WebURL is where the SvelteKit app lives. The API needs it to write a
+	// link back to the event into the downloaded calendar entry.
+	WebURL string
+
 	ShutdownTimeout time.Duration
 }
 
@@ -26,6 +31,7 @@ func ConfigFromEnv() Config {
 		Env:             env("APP_ENV", "development"),
 		DatabaseURL:     os.Getenv("DATABASE_URL"),
 		AllowedOrigins:  splitList(env("ALLOWED_ORIGINS", "http://localhost:5173")),
+		WebURL:          strings.TrimRight(env("WEB_URL", "http://localhost:5173"), "/"),
 		ShutdownTimeout: 15 * time.Second,
 	}
 }

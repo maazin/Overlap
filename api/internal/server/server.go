@@ -40,6 +40,13 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("PUT /api/events/{slug}/responses",
 		s.requireParticipant(http.HandlerFunc(s.handlePutResponses)))
 
+	mux.HandleFunc("GET /api/events/{slug}/solve", s.handleSolve)
+	mux.HandleFunc("GET /api/events/{slug}/decided.ics", s.handleDecidedICS)
+	mux.Handle("POST /api/events/{slug}/decide",
+		s.requireParticipant(http.HandlerFunc(s.handleDecide)))
+	mux.Handle("POST /api/events/{slug}/reopen",
+		s.requireParticipant(http.HandlerFunc(s.handleReopen)))
+
 	return s.recoverPanic(s.logRequests(s.cors(mux)))
 }
 

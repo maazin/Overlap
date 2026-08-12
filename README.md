@@ -14,6 +14,8 @@ api/                 Go 1.26 HTTP API — deploys to Fly.io
   internal/slots/    pure window -> absolute instant expansion (DST lives here)
   internal/dayparts/ pure coarse-grid mapping, evaluated in the responder's zone
   internal/solver/   pure scoring and dominance engine (no IO, no clock)
+  internal/results/  binds stored rows to solver inputs; owns what silence means
+  internal/ics/      pure RFC 5545 rendering for the decided-event download
   internal/store/    the only package that talks to Postgres
   internal/dbgen/    sqlc-generated, do not edit
   internal/tz/       IANA zone resolution for untrusted names
@@ -68,7 +70,22 @@ GET  /api/events/{slug}                 event, slots, participants, and your own
 POST /api/events/{slug}/participants    join by name; returns { token }
 PUT  /api/events/{slug}/responses       upsert the full response set
                                         header X-Participant-Token
+GET  /api/events/{slug}/solve           ranked slots, coverage and exclusions
+POST /api/events/{slug}/decide          organizer locks a slot
+POST /api/events/{slug}/reopen          organizer unlocks it again
+GET  /api/events/{slug}/decided.ics     calendar download for the locked slot
 ```
+
+**No score is ever returned.** The composite orders the ranking on the server
+and stays there. A number like 0.7855 printed next to a time reads as precision
+the model does not have and invites arguing with it, so what leaves the server
+is who can come and who it costs.
+
+**Silence versus refusal.** `internal/results` fills a responder's unmentioned
+slots with "no" and leaves a non-responder genuinely unknown. Both directions
+matter: if a responder's gaps read as unknown nothing could ever be settled, and
+if a non-responder's silence read as "no" the tool would rule out times on
+behalf of someone who has not spoken.
 
 **Identity.** A participant token is an opaque 256-bit value the client keeps in
 `localStorage`, scoped to the event slug. The database stores only its SHA-256

@@ -394,8 +394,15 @@
 				{/each}
 			</div>
 
+			<a
+				class="bg-ink mt-3.5 block w-full rounded-xl p-3.5 text-center text-[15px] font-semibold text-white"
+				href="/e/{slug}/results"
+			>
+				See what works so far
+			</a>
+
 			<button
-				class="border-line mt-3.5 w-full rounded-xl border bg-white p-3.5 text-[15px] font-semibold"
+				class="border-line mt-2 w-full rounded-xl border bg-white p-3.5 text-[15px] font-semibold"
 				onclick={() => (stage = 'coarse')}
 			>
 				Change my answer

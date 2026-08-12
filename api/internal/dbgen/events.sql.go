@@ -62,12 +62,73 @@ func (q *Queries) CreateEvent(ctx context.Context, arg CreateEventParams) (Event
 	return i, err
 }
 
+const decideEvent = `-- name: DecideEvent :one
+update events
+set status = 'decided', decided_slot_start = $2
+where id = $1
+returning id, slug, title, organizer_tz, window_start, window_end, day_start, day_end, slot_minutes, status, decided_slot_start, created_at, expires_at
+`
+
+type DecideEventParams struct {
+	ID               pgtype.UUID
+	DecidedSlotStart pgtype.Timestamptz
+}
+
+func (q *Queries) DecideEvent(ctx context.Context, arg DecideEventParams) (Event, error) {
+	row := q.db.QueryRow(ctx, decideEvent, arg.ID, arg.DecidedSlotStart)
+	var i Event
+	err := row.Scan(
+		&i.ID,
+		&i.Slug,
+		&i.Title,
+		&i.OrganizerTz,
+		&i.WindowStart,
+		&i.WindowEnd,
+		&i.DayStart,
+		&i.DayEnd,
+		&i.SlotMinutes,
+		&i.Status,
+		&i.DecidedSlotStart,
+		&i.CreatedAt,
+		&i.ExpiresAt,
+	)
+	return i, err
+}
+
 const getEventBySlug = `-- name: GetEventBySlug :one
 select id, slug, title, organizer_tz, window_start, window_end, day_start, day_end, slot_minutes, status, decided_slot_start, created_at, expires_at from events where slug = $1
 `
 
 func (q *Queries) GetEventBySlug(ctx context.Context, slug string) (Event, error) {
 	row := q.db.QueryRow(ctx, getEventBySlug, slug)
+	var i Event
+	err := row.Scan(
+		&i.ID,
+		&i.Slug,
+		&i.Title,
+		&i.OrganizerTz,
+		&i.WindowStart,
+		&i.WindowEnd,
+		&i.DayStart,
+		&i.DayEnd,
+		&i.SlotMinutes,
+		&i.Status,
+		&i.DecidedSlotStart,
+		&i.CreatedAt,
+		&i.ExpiresAt,
+	)
+	return i, err
+}
+
+const reopenEvent = `-- name: ReopenEvent :one
+update events
+set status = 'open', decided_slot_start = null
+where id = $1
+returning id, slug, title, organizer_tz, window_start, window_end, day_start, day_end, slot_minutes, status, decided_slot_start, created_at, expires_at
+`
+
+func (q *Queries) ReopenEvent(ctx context.Context, id pgtype.UUID) (Event, error) {
+	row := q.db.QueryRow(ctx, reopenEvent, id)
 	var i Event
 	err := row.Scan(
 		&i.ID,
