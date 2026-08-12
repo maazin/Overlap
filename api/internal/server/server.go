@@ -36,6 +36,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /api/health", s.handleHealth)
 	mux.HandleFunc("POST /api/events", s.handleCreateEvent)
 	mux.HandleFunc("GET /api/events/{slug}", s.handleGetEvent)
+	mux.HandleFunc("POST /api/events/{slug}/participants", s.handleJoin)
+	mux.Handle("PUT /api/events/{slug}/responses",
+		s.requireParticipant(http.HandlerFunc(s.handlePutResponses)))
 
 	return s.recoverPanic(s.logRequests(s.cors(mux)))
 }

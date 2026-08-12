@@ -6,11 +6,21 @@ package dbgen
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Querier interface {
 	CreateEvent(ctx context.Context, arg CreateEventParams) (Event, error)
+	CreateParticipant(ctx context.Context, arg CreateParticipantParams) (Participant, error)
+	DeleteResponsesForParticipant(ctx context.Context, participantID pgtype.UUID) error
 	GetEventBySlug(ctx context.Context, slug string) (Event, error)
+	GetParticipantByToken(ctx context.Context, arg GetParticipantByTokenParams) (Participant, error)
+	InsertResponses(ctx context.Context, arg InsertResponsesParams) error
+	ListParticipants(ctx context.Context, eventID pgtype.UUID) ([]Participant, error)
+	ListResponsesForEvent(ctx context.Context, eventID pgtype.UUID) ([]Response, error)
+	ListResponsesForParticipant(ctx context.Context, participantID pgtype.UUID) ([]Response, error)
+	MarkParticipantResponded(ctx context.Context, id pgtype.UUID) error
 }
 
 var _ Querier = (*Queries)(nil)

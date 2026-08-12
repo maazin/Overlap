@@ -30,10 +30,20 @@ type createEventRequest struct {
 	DayStart    string `json:"day_start"`
 	DayEnd      string `json:"day_end"`
 	SlotMinutes int    `json:"slot_minutes"`
+
+	// OrganizerName is optional. Supplying it joins the creator to the event in
+	// the same transaction and returns a token; leaving it out creates a bare
+	// link, which is a legitimate thing to want.
+	OrganizerName string `json:"organizer_name"`
 }
 
 type createEventResponse struct {
 	Slug string `json:"slug"`
+
+	// OrganizerToken is returned exactly once, at creation. There is no
+	// endpoint that reads it back, because the server stores only its digest.
+	OrganizerToken string `json:"organizer_token,omitempty"`
+	ParticipantID  string `json:"participant_id,omitempty"`
 }
 
 // dstNote explains a wall clock that did not map cleanly onto the timeline, so
@@ -63,6 +73,40 @@ type eventResponse struct {
 
 	DSTNotes  []dstNote `json:"dst_notes,omitempty"`
 	ExpiresAt time.Time `json:"expires_at"`
+
+	Participants []participantView `json:"participants"`
+
+	// You is present only when the request carried a recognised token. It is
+	// what lets someone reopen the link on the same device and edit rather than
+	// answer again from scratch.
+	You *selfView `json:"you,omitempty"`
+}
+
+// participantView is deliberately thin. Everyone can read the event, so this is
+// public: names and whether each person has answered, never their tiers and
+// never anything that identifies a device.
+type participantView struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Role        string `json:"role"`
+	IsOrganizer bool   `json:"is_organizer"`
+	Responded   bool   `json:"responded"`
+}
+
+type selfView struct {
+	ParticipantID string         `json:"participant_id"`
+	Name          string         `json:"name"`
+	Timezone      string         `json:"timezone"`
+	Role          string         `json:"role"`
+	IsOrganizer   bool           `json:"is_organizer"`
+	Responded     bool           `json:"responded"`
+	Responses     []responseView `json:"responses"`
+}
+
+type responseView struct {
+	SlotStart time.Time `json:"slot_start"`
+	Tier      string    `json:"tier"`
+	Source    string    `json:"source"`
 }
 
 func (s *Server) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
@@ -94,15 +138,20 @@ func (s *Server) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ev, err := s.store.CreateEvent(r.Context(), in)
+	created, err := s.store.CreateEvent(r.Context(), in)
 	if err != nil {
 		s.log.ErrorContext(r.Context(), "create event", "err", err)
 		s.writeError(w, r, http.StatusInternalServerError, "could not create event")
 		return
 	}
 
-	w.Header().Set("Location", "/api/events/"+ev.Slug)
-	s.writeJSON(w, r, http.StatusCreated, createEventResponse{Slug: ev.Slug})
+	w.Header().Set("Location", "/api/events/"+created.Event.Slug)
+
+	out := createEventResponse{Slug: created.Event.Slug, OrganizerToken: created.OrganizerToken}
+	if created.Organizer != nil {
+		out.ParticipantID = created.Organizer.ID
+	}
+	s.writeJSON(w, r, http.StatusCreated, out)
 }
 
 func (s *Server) handleGetEvent(w http.ResponseWriter, r *http.Request) {
@@ -142,6 +191,49 @@ func (s *Server) handleGetEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	for i, t := range exp.Starts {
 		out.Slots[i] = t.UTC()
+	}
+
+	ps, err := s.store.Participants(r.Context(), ev.ID)
+	if err != nil {
+		s.log.ErrorContext(r.Context(), "list participants", "err", err, "slug", ev.Slug)
+		s.writeError(w, r, http.StatusInternalServerError, "could not load participants")
+		return
+	}
+	out.Participants = make([]participantView, len(ps))
+	for i, p := range ps {
+		out.Participants[i] = participantView{
+			ID:          p.ID,
+			Name:        p.DisplayName,
+			Role:        p.Role,
+			IsOrganizer: p.IsOrganizer,
+			Responded:   p.Responded(),
+		}
+	}
+
+	if me, ok := s.optionalParticipant(r, ev.ID); ok {
+		self := selfView{
+			ParticipantID: me.ID,
+			Name:          me.DisplayName,
+			Timezone:      me.TZ,
+			Role:          me.Role,
+			IsOrganizer:   me.IsOrganizer,
+			Responded:     me.Responded(),
+			Responses:     []responseView{},
+		}
+		rs, err := s.store.ResponsesForParticipant(r.Context(), me.ID)
+		if err != nil {
+			s.log.ErrorContext(r.Context(), "load own responses", "err", err)
+			s.writeError(w, r, http.StatusInternalServerError, "could not load your responses")
+			return
+		}
+		for _, resp := range rs {
+			self.Responses = append(self.Responses, responseView{
+				SlotStart: resp.SlotStart.UTC(),
+				Tier:      resp.Tier.String(),
+				Source:    resp.Source,
+			})
+		}
+		out.You = &self
 	}
 
 	s.writeJSON(w, r, http.StatusOK, out)
@@ -210,6 +302,13 @@ func (req createEventRequest) toNewEvent() (store.NewEvent, error) {
 	// the constraint is the guarantee, this is the readable error message.
 	if out.SlotMinutes < 5 || out.SlotMinutes > 480 {
 		return out, errors.New("slot_minutes must be between 5 and 480")
+	}
+
+	if name := strings.TrimSpace(req.OrganizerName); name != "" {
+		if utf8.RuneCountInString(name) > maxNameRunes {
+			return out, fmt.Errorf("organizer_name must be at most %d characters", maxNameRunes)
+		}
+		out.Organizer = &store.NewParticipant{DisplayName: name, TZ: req.Timezone}
 	}
 
 	return out, nil

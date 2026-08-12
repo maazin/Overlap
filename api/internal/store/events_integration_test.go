@@ -50,10 +50,11 @@ func TestCreateAndReadBack(t *testing.T) {
 	st := testStore(t)
 	in := sampleEvent()
 
-	created, err := st.CreateEvent(t.Context(), in)
+	res, err := st.CreateEvent(t.Context(), in)
 	if err != nil {
 		t.Fatalf("CreateEvent: %v", err)
 	}
+	created := res.Event
 	if created.Slug == "" {
 		t.Fatal("created event has no slug")
 	}
@@ -105,10 +106,11 @@ func TestHalfHourBandSurvivesTheTimeColumn(t *testing.T) {
 	in.DayStart = slots.TimeOfDay{Hour: 8, Minute: 30}
 	in.DayEnd = slots.TimeOfDay{Hour: 17, Minute: 45}
 
-	created, err := st.CreateEvent(t.Context(), in)
+	res, err := st.CreateEvent(t.Context(), in)
 	if err != nil {
 		t.Fatalf("CreateEvent: %v", err)
 	}
+	created := res.Event
 	got, err := st.EventBySlug(t.Context(), created.Slug)
 	if err != nil {
 		t.Fatalf("EventBySlug: %v", err)
@@ -131,10 +133,11 @@ func TestStoredEventExpandsAcrossDST(t *testing.T) {
 	in.DayEnd = slots.TimeOfDay{Hour: 11}
 	in.SlotMinutes = 60
 
-	created, err := st.CreateEvent(t.Context(), in)
+	res, err := st.CreateEvent(t.Context(), in)
 	if err != nil {
 		t.Fatalf("CreateEvent: %v", err)
 	}
+	created := res.Event
 	got, err := st.EventBySlug(t.Context(), created.Slug)
 	if err != nil {
 		t.Fatalf("EventBySlug: %v", err)
@@ -177,10 +180,11 @@ func TestSlugsAreUnique(t *testing.T) {
 
 	seen := make(map[string]bool, 50)
 	for range 50 {
-		ev, err := st.CreateEvent(t.Context(), sampleEvent())
+		res, err := st.CreateEvent(t.Context(), sampleEvent())
 		if err != nil {
 			t.Fatalf("CreateEvent: %v", err)
 		}
+		ev := res.Event
 		if seen[ev.Slug] {
 			t.Fatalf("duplicate slug %q", ev.Slug)
 		}

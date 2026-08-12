@@ -23,3 +23,24 @@ type Event struct {
 	CreatedAt        pgtype.Timestamptz
 	ExpiresAt        pgtype.Timestamptz
 }
+
+type Participant struct {
+	ID             pgtype.UUID
+	EventID        pgtype.UUID
+	TokenHash      []byte
+	DisplayName    string
+	Tz             string
+	Role           string
+	Email          pgtype.Text
+	CalendarSource string
+	IsOrganizer    bool
+	RespondedAt    pgtype.Timestamptz
+	CreatedAt      pgtype.Timestamptz
+}
+
+type Response struct {
+	ParticipantID pgtype.UUID
+	SlotStart     pgtype.Timestamptz
+	Tier          int16
+	Source        string
+}

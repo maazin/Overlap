@@ -1,0 +1,39 @@
+@import 'tailwindcss';
+
+/* The palette from the input prototype, as design tokens. Tailwind v4 reads
+   @theme and generates utilities from it, so `bg-card` and `text-muted` work
+   everywhere without a config file. */
+@theme {
+  --color-bg: #faf9f7;
+  --color-card: #ffffff;
+  --color-ink: #1b1a17;
+  --color-muted: #6f6b63;
+  --color-line: #e6e2dc;
+
+  --color-yes: #1a7f5a;
+  --color-yes-bg: #dcf2e8;
+  --color-maybe: #a86a10;
+  --color-maybe-bg: #fbeed5;
+  --color-bad: #b4472f;
+
+  --font-sans: ui-sans-serif, -apple-system, 'Segoe UI', Inter, Roboto, sans-serif;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Kills the grey flash when a thumb lands on a tappable cell. The response
+   grid is nothing but tap targets, so the default highlight reads as lag. */
+* {
+  -webkit-tap-highlight-color: transparent;
+}

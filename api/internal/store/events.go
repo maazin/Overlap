@@ -76,6 +76,20 @@ type NewEvent struct {
 	DayStart    slots.TimeOfDay
 	DayEnd      slots.TimeOfDay
 	SlotMinutes int
+
+	// Organizer, when non-nil, is joined to the event in the same transaction
+	// and marked is_organizer. Leaving it nil creates an event nobody has
+	// joined yet, which is legitimate: the link is what matters, not the
+	// account.
+	Organizer *NewParticipant
+}
+
+// CreatedEvent is what CreateEvent returns. OrganizerToken is empty unless an
+// organizer was supplied, and is the only time that token is ever readable.
+type CreatedEvent struct {
+	Event          Event
+	Organizer      *Participant
+	OrganizerToken string
 }
 
 // CreateEvent inserts an event, retrying on slug collision.
@@ -83,37 +97,93 @@ type NewEvent struct {
 // The retry is driven by the database's unique index rather than a pre-flight
 // "does this slug exist" query. A check-then-insert has a race between the two
 // statements; letting the insert fail and trying again cannot.
-func (s *Store) CreateEvent(ctx context.Context, in NewEvent) (Event, error) {
+//
+// The event and its organizer are written in one transaction, so a failure
+// partway cannot leave an event whose organizer does not exist and which
+// therefore nobody can ever decide.
+func (s *Store) CreateEvent(ctx context.Context, in NewEvent) (CreatedEvent, error) {
 	var lastErr error
 
 	for range slugAttempts {
 		slug, err := newSlug()
 		if err != nil {
-			return Event{}, fmt.Errorf("generate slug: %w", err)
+			return CreatedEvent{}, fmt.Errorf("generate slug: %w", err)
 		}
 
-		row, err := s.q.CreateEvent(ctx, dbgen.CreateEventParams{
-			Slug:        slug,
-			Title:       in.Title,
-			OrganizerTz: in.OrganizerTZ,
-			WindowStart: encodeDate(in.WindowStart),
-			WindowEnd:   encodeDate(in.WindowEnd),
-			DayStart:    encodeTimeOfDay(in.DayStart),
-			DayEnd:      encodeTimeOfDay(in.DayEnd),
-			SlotMinutes: int32(in.SlotMinutes),
-		})
+		out, err := s.createEventTx(ctx, slug, in)
 		if err == nil {
-			return decodeEvent(row)
+			return out, nil
 		}
-
 		if isUniqueViolation(err, "events_slug_key") {
 			lastErr = err
 			continue
 		}
-		return Event{}, fmt.Errorf("insert event: %w", err)
+		return CreatedEvent{}, err
 	}
 
-	return Event{}, fmt.Errorf("could not allocate a free slug in %d attempts: %w", slugAttempts, lastErr)
+	return CreatedEvent{}, fmt.Errorf("could not allocate a free slug in %d attempts: %w", slugAttempts, lastErr)
+}
+
+func (s *Store) createEventTx(ctx context.Context, slug string, in NewEvent) (CreatedEvent, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return CreatedEvent{}, fmt.Errorf("begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	q := s.q.WithTx(tx)
+
+	row, err := q.CreateEvent(ctx, dbgen.CreateEventParams{
+		Slug:        slug,
+		Title:       in.Title,
+		OrganizerTz: in.OrganizerTZ,
+		WindowStart: encodeDate(in.WindowStart),
+		WindowEnd:   encodeDate(in.WindowEnd),
+		DayStart:    encodeTimeOfDay(in.DayStart),
+		DayEnd:      encodeTimeOfDay(in.DayEnd),
+		SlotMinutes: int32(in.SlotMinutes),
+	})
+	if err != nil {
+		// Returned unwrapped so CreateEvent can recognise a slug collision.
+		return CreatedEvent{}, err
+	}
+
+	ev, err := decodeEvent(row)
+	if err != nil {
+		return CreatedEvent{}, err
+	}
+	out := CreatedEvent{Event: ev}
+
+	if in.Organizer != nil {
+		raw, digest, err := newToken()
+		if err != nil {
+			return CreatedEvent{}, err
+		}
+
+		prow, err := q.CreateParticipant(ctx, dbgen.CreateParticipantParams{
+			EventID:     row.ID,
+			TokenHash:   digest,
+			DisplayName: in.Organizer.DisplayName,
+			Tz:          orDefault(in.Organizer.TZ, in.OrganizerTZ),
+			// An organizer who is not required would let the event be settled
+			// without them, which is never what someone scheduling a meeting
+			// means.
+			Role:        RoleRequired,
+			IsOrganizer: true,
+		})
+		if err != nil {
+			return CreatedEvent{}, fmt.Errorf("create organizer: %w", err)
+		}
+
+		p := decodeParticipant(prow)
+		out.Organizer = &p
+		out.OrganizerToken = raw
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return CreatedEvent{}, fmt.Errorf("commit: %w", err)
+	}
+	return out, nil
 }
 
 // EventBySlug looks up one event.

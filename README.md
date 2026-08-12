@@ -12,6 +12,7 @@ api/                 Go 1.26 HTTP API — deploys to Fly.io
   cmd/api/           main, lifecycle, graceful shutdown
   internal/server/   config, routing, middleware, handlers
   internal/slots/    pure window -> absolute instant expansion (DST lives here)
+  internal/dayparts/ pure coarse-grid mapping, evaluated in the responder's zone
   internal/solver/   pure scoring and dominance engine (no IO, no clock)
   internal/store/    the only package that talks to Postgres
   internal/dbgen/    sqlc-generated, do not edit
@@ -60,10 +61,29 @@ enters only as a parameter.
 ## API
 
 ```
-GET  /api/health          liveness only; deliberately does not touch Postgres
-POST /api/events          create an event, returns { slug }
-GET  /api/events/{slug}   event plus its expanded slots as UTC instants
+GET  /api/health                        liveness only; does not touch Postgres
+POST /api/events                        create; returns { slug, organizer_token? }
+GET  /api/events/{slug}                 event, slots, participants, and your own
+                                        answers when a token is sent
+POST /api/events/{slug}/participants    join by name; returns { token }
+PUT  /api/events/{slug}/responses       upsert the full response set
+                                        header X-Participant-Token
 ```
+
+**Identity.** A participant token is an opaque 256-bit value the client keeps in
+`localStorage`, scoped to the event slug. The database stores only its SHA-256
+digest, so a leaked backup cannot be replayed. Lookup is keyed on
+`(event_id, token_hash)`, which makes a token minted for one event a miss in
+another rather than a comparison someone has to remember to write.
+
+**The input model.** A response is submitted as coarse day-part selections plus
+optional per-slot overrides. The server expands the coarse part using the
+*responder's* timezone and records `source = 'coarse'`; per-slot overrides land
+on top as `source = 'manual'`. Sending day parts rather than pre-expanded slots
+means the client and server cannot disagree about which slots a tap covered.
+
+A coarse-only submission is a complete, valid response. Bailing out before the
+fine pass still contributes signal, which is the whole point of the two stages.
 
 Slots come back as absolute instants and are rendered in the viewer's zone by
 the client. The server never guesses who is looking.
