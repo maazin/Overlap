@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Overlap — input prototype</title>
+<style>
+  :root{
+    --bg:#faf9f7; --card:#fff; --ink:#1b1a17; --muted:#6f6b63; --line:#e6e2dc;
+    --yes:#1a7f5a; --yes-bg:#dcf2e8; --maybe:#a86a10; --maybe-bg:#fbeed5;
+    --busy:#a5a099; --accent:#1b1a17;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--ink);
+    font:16px/1.45 ui-sans-serif,-apple-system,"Segoe UI",Inter,Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:480px;margin:0 auto;padding:20px 16px 120px}
+  header{margin-bottom:18px}
+  .eyebrow{font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:600}
+  h1{font-size:23px;line-height:1.2;margin:6px 0 4px;font-weight:650;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:14px;margin:0}
+
+  .timer{position:fixed;top:10px;right:12px;background:var(--ink);color:#fff;
+    font-size:11px;font-variant-numeric:tabular-nums;padding:5px 9px;border-radius:99px;
+    opacity:.85;z-index:50}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+  .card h2{font-size:15px;margin:0 0 3px;font-weight:650}
+  .card p{margin:0;font-size:13.5px;color:var(--muted)}
+
+  .btn{display:block;width:100%;border:1px solid var(--line);background:#fff;color:var(--ink);
+    font:inherit;font-size:15px;font-weight:600;padding:13px;border-radius:11px;cursor:pointer}
+  .btn.primary{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .btn.ghost{background:transparent;border-style:dashed;color:var(--muted);font-weight:500;font-size:14px;padding:11px}
+  .btn:active{transform:scale(.99)}
+
+  /* coarse grid */
+  .gridhead{display:grid;grid-template-columns:58px 1fr 1fr 1fr;gap:6px;margin-bottom:6px}
+  .gridhead span{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;
+    color:var(--muted);text-align:center;font-weight:600}
+  .row{display:grid;grid-template-columns:58px 1fr 1fr 1fr;gap:6px;margin-bottom:6px;align-items:stretch}
+  .daylab{display:flex;flex-direction:column;justify-content:center;font-size:12.5px;line-height:1.15}
+  .daylab b{font-weight:650;font-size:13px}
+  .daylab span{color:var(--muted);font-size:11px}
+
+  .cell{border:1px solid var(--line);background:#fff;border-radius:10px;min-height:52px;
+    display:flex;align-items:center;justify-content:center;cursor:pointer;
+    font-size:11.5px;font-weight:650;color:#c4bfb7;transition:background .09s,border-color .09s,color .09s;
+    user-select:none;padding:2px}
+  .cell[data-s="yes"]{background:var(--yes-bg);border-color:var(--yes);color:var(--yes)}
+  .cell[data-s="maybe"]{background:var(--maybe-bg);border-color:var(--maybe);color:var(--maybe)}
+  .cell[data-busy="1"]{background:repeating-linear-gradient(45deg,#f2f0ed,#f2f0ed 4px,#e8e5e0 4px,#e8e5e0 8px);
+    color:#a5a099;border-style:dashed}
+  .cell[data-busy="1"][data-s="yes"],.cell[data-busy="1"][data-s="maybe"]{background-image:none}
+
+  .legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11.5px;color:var(--muted);margin:10px 2px 0}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px;border:1px solid}
+  .lg-y i{background:var(--yes-bg);border-color:var(--yes)}
+  .lg-m i{background:var(--maybe-bg);border-color:var(--maybe)}
+  .lg-b i{background:#eae7e2;border-color:#cfcac2;border-style:dashed}
+
+  /* fine stage */
+  .block{border-top:1px solid var(--line);padding-top:12px;margin-top:12px}
+  .block:first-child{border-top:0;padding-top:0;margin-top:0}
+  .blocktitle{font-size:13px;font-weight:650;margin-bottom:8px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{border:1px solid var(--line);background:#fff;border-radius:9px;padding:9px 11px;
+    font-size:12.5px;font-weight:600;cursor:pointer;color:var(--muted);
+    font-variant-numeric:tabular-nums;user-select:none;min-height:38px;display:flex;align-items:center}
+  .chip[data-s="yes"]{background:var(--yes-bg);border-color:var(--yes);color:var(--yes)}
+  .chip[data-s="maybe"]{background:var(--maybe-bg);border-color:var(--maybe);color:var(--maybe)}
+  .chip[data-s="no"]{background:#f4f2ef;border-color:var(--line);color:#b8b3ab;text-decoration:line-through}
+
+  .bar{position:fixed;left:0;right:0;bottom:0;background:rgba(250,249,247,.95);
+    backdrop-filter:blur(8px);border-top:1px solid var(--line);padding:12px 16px 18px;z-index:40}
+  .bar .inner{max-width:480px;margin:0 auto}
+  .count{font-size:12.5px;color:var(--muted);text-align:center;margin-bottom:9px}
+
+  .hide{display:none}
+
+  .toggle{display:flex;gap:6px;margin-bottom:14px}
+  .tg{flex:1;border:1px solid var(--line);background:#fff;border-radius:9px;padding:9px 6px;
+    font:inherit;font-size:11.5px;font-weight:600;color:var(--muted);cursor:pointer;line-height:1.25}
+  .tg.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+
+  .banner{border-radius:13px;padding:15px 16px;margin-bottom:16px}
+  .banner.go{background:#0f2f22;color:#d9f2e6}
+  .banner.wait{background:#fbeed5;color:#5c3d05;border:1px solid #e8d5a8}
+  .banner h3{margin:0 0 4px;font-size:15.5px;font-weight:650;letter-spacing:-.01em}
+  .banner p{margin:0;font-size:13px;opacity:.85}
+  .banner button{margin-top:12px;width:100%;border:0;border-radius:9px;padding:11px;
+    font:inherit;font-size:14px;font-weight:650;cursor:pointer}
+  .banner.go button{background:#d9f2e6;color:#0f2f22}
+  .banner.wait button{background:#5c3d05;color:#fbeed5}
+
+  .slot{background:#fff;border:1px solid var(--line);border-radius:12px;padding:13px 14px;margin-bottom:9px}
+  .slot.lead{border-color:var(--ink);border-width:2px;padding:12px 13px}
+  .slot .top{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+  .slot .when{font-size:15px;font-weight:650;letter-spacing:-.01em}
+  .slot .cov{font-size:12px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+  .bar2{height:6px;border-radius:99px;background:#eeebe6;margin:9px 0 8px;overflow:hidden}
+  .bar2 i{display:block;height:100%;background:var(--yes);border-radius:99px}
+  .who{font-size:12.5px;color:var(--muted);line-height:1.45}
+  .who b{color:var(--ink);font-weight:600}
+  .done{text-align:center;padding:30px 0}
+  .done .big{font-size:40px;font-weight:700;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+  .done .lbl{color:var(--muted);font-size:13.5px;margin-top:2px}
+  .summary{text-align:left;margin-top:22px;font-size:13.5px}
+  .summary div{padding:7px 0;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:10px}
+  .summary b{font-weight:600}
+  .note{font-size:12px;color:var(--muted);margin-top:18px;line-height:1.5}
+</style>
+</head>
+<body>
+<div class="timer" id="timer">tap to start</div>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">Overlap</div>
+    <h1>When can you make the team sync?</h1>
+    <p class="sub">Nov 3–9 · 45 min · times shown in your local zone</p>
+  </header>
+
+  <!-- STAGE 0 -->
+  <section id="s0">
+    <div class="card">
+      <h2>Skip the typing</h2>
+      <p>We read only busy/free times. Never event titles, never details.</p>
+      <div style="height:12px"></div>
+      <button class="btn primary" onclick="connectCal()">Connect Google Calendar</button>
+      <div style="height:8px"></div>
+      <button class="btn ghost" onclick="go1()">I'll fill it in myself</button>
+    </div>
+  </section>
+
+  <!-- STAGE 1 -->
+  <section id="s1" class="hide">
+    <div class="card">
+      <h2>Tap whatever works</h2>
+      <p>Once for yes, twice for if-needed. Anything you don't tap counts as no.</p>
+    </div>
+
+    <div class="gridhead"><span></span><span>Morning</span><span>Afternoon</span><span>Evening</span></div>
+    <div id="grid"></div>
+
+    <div class="legend">
+      <span class="lg-y"><i></i>Works</span>
+      <span class="lg-m"><i></i>If needed</span>
+      <span class="lg-b"><i></i>Busy in your calendar</span>
+    </div>
+  </section>
+
+  <!-- STAGE 2 -->
+  <section id="s2" class="hide">
+    <div class="card">
+      <h2>Anything to narrow down?</h2>
+      <p>Optional. Tap a time to downgrade or rule it out. Otherwise just submit.</p>
+    </div>
+    <div class="card" id="fine"></div>
+  </section>
+
+  <!-- DONE -->
+  <section id="s3" class="hide">
+    <div class="done">
+      <div class="big" id="elapsed">—</div>
+      <div class="lbl">seconds to respond</div>
+      <div class="summary" id="sum"></div>
+      <div class="note">
+        When2Meet on a phone takes most people 90 to 180 seconds for the same window.
+        If you were over 30, the input model needs work — that's the whole point of this test.
+      </div>
+      <div style="height:20px"></div>
+      <button class="btn primary" onclick="showOrg()">See what the organizer sees</button>
+      <div style="height:8px"></div>
+      <button class="btn" onclick="location.reload()">Reset for the next person</button>
+    </div>
+  </section>
+
+  <!-- ORGANIZER VIEW -->
+  <section id="s4" class="hide">
+    <div class="toggle">
+      <button class="tg on" id="tgA" onclick="scen('A')">Everyone required has replied</button>
+      <button class="tg" id="tgB" onclick="scen('B')">Ben hasn't replied</button>
+    </div>
+
+    <div id="banner"></div>
+    <div id="slots"></div>
+
+    <div id="decided" class="hide">
+      <div class="card" style="border-color:var(--yes);background:var(--yes-bg)">
+        <h2 style="color:var(--yes)">Thursday Nov 6, 3:00–3:45pm</h2>
+        <p style="color:var(--yes)">Locked. 5 of 6 can make it.</p>
+        <div style="height:12px"></div>
+        <button class="btn" onclick="return false">Download invite (.ics)</button>
+      </div>
+      <div class="card">
+        <h2>Schedule with these five again?</h2>
+        <p>Names, timezones and calendars carry over. Next time takes one tap.</p>
+        <div style="height:12px"></div>
+        <button class="btn" onclick="return false">Make a group</button>
+      </div>
+    </div>
+
+    <div style="height:14px"></div>
+    <button class="btn" onclick="location.reload()">Reset for the next person</button>
+    <div class="note" style="text-align:left">
+      Testing note: don't explain the banner. Ask them what it means and what
+      they'd do next. If they can't say, the wording is wrong.
+    </div>
+  </section>
+
+</div>
+
+<div class="bar hide" id="bar">
+  <div class="inner">
+    <div class="count" id="count"></div>
+    <button class="btn primary" id="cta" onclick="next()">Continue</button>
+  </div>
+</div>
+
+<script>
+const DAYS=[["Mon","Nov 3"],["Tue","Nov 4"],["Wed","Nov 5"],["Thu","Nov 6"],
+            ["Fri","Nov 7"],["Sat","Nov 8"],["Sun","Nov 9"]];
+const BLOCKS=[["Morning","8–12"],["Afternoon","12–5"],["Evening","5–9"]];
+const SLOTS={0:["8:00","8:45","9:30","10:15","11:00"],
+             1:["12:00","12:45","1:30","2:15","3:00","3:45"],
+             2:["5:00","5:45","6:30","7:15","8:00"]};
+// simulated calendar conflicts: [day, block]
+const BUSY=[[0,1],[1,0],[2,1],[3,0],[4,1],[4,2]];
+
+const CYCLE=["","yes","maybe"];
+let state={}, fine={}, busy=false, t0=null, stage=0;
+
+function key(d,b){return d+"-"+b}
+
+function tick(){
+  if(!t0)return;
+  document.getElementById("timer").textContent=((Date.now()-t0)/1000).toFixed(1)+"s";
+}
+function start(){ if(!t0){t0=Date.now(); setInterval(tick,100);} }
+
+function connectCal(){ start(); busy=true; go1(); }
+
+function go1(){
+  start(); stage=1;
+  document.getElementById("s0").classList.add("hide");
+  document.getElementById("s1").classList.remove("hide");
+  document.getElementById("bar").classList.remove("hide");
+  render();
+}
+
+function render(){
+  const g=document.getElementById("grid"); g.innerHTML="";
+  DAYS.forEach((d,di)=>{
+    const row=document.createElement("div"); row.className="row";
+    row.innerHTML=`<div class="daylab"><b>${d[0]}</b><span>${d[1]}</span></div>`;
+    BLOCKS.forEach((b,bi)=>{
+      const k=key(di,bi);
+      const isBusy=busy&&BUSY.some(x=>x[0]===di&&x[1]===bi);
+      const s=state[k]||"";
+      const c=document.createElement("div");
+      c.className="cell";
+      c.dataset.s=s;
+      if(isBusy)c.dataset.busy="1";
+      c.textContent = s==="yes"?"Works" : s==="maybe"?"If needed" : (isBusy?"Busy":"");
+      c.onclick=()=>{
+        start();
+        const cur=CYCLE.indexOf(state[k]||"");
+        state[k]=CYCLE[(cur+1)%3];
+        if(!state[k])delete state[k];
+        render();
+      };
+      row.appendChild(c);
+    });
+    g.appendChild(row);
+  });
+  updateBar();
+}
+
+function picked(){return Object.keys(state)}
+
+function updateBar(){
+  const n=picked().length;
+  const c=document.getElementById("count");
+  const cta=document.getElementById("cta");
+  if(stage===1){
+    c.textContent = n===0 ? "Tap the blocks that work for you"
+      : n+" block"+(n===1?"":"s")+" selected";
+    cta.textContent = n===0 ? "Nothing works for me" : "Continue";
+  }else{
+    c.textContent="Optional — you can submit as is";
+    cta.textContent="Submit";
+  }
+}
+
+function next(){
+  if(stage===1){ stage=2; buildFine();
+    document.getElementById("s1").classList.add("hide");
+    document.getElementById("s2").classList.remove("hide");
+    window.scrollTo(0,0); updateBar();
+  } else { submit(); }
+}
+
+function buildFine(){
+  const f=document.getElementById("fine"); f.innerHTML="";
+  const ks=picked().sort((a,b)=>{
+    const [ad,ab]=a.split("-").map(Number),[bd,bb]=b.split("-").map(Number);
+    return ad-bd||ab-bb;
+  });
+  if(!ks.length){ f.innerHTML='<p>You didn\'t mark anything as workable.</p>'; return; }
+  ks.forEach(k=>{
+    const [di,bi]=k.split("-").map(Number);
+    const wrap=document.createElement("div"); wrap.className="block";
+    wrap.innerHTML=`<div class="blocktitle">${DAYS[di][0]} ${DAYS[di][1]} · ${BLOCKS[bi][0]}</div>`;
+    const chips=document.createElement("div"); chips.className="chips";
+    SLOTS[bi].forEach(t=>{
+      const fk=k+"-"+t;
+      if(!(fk in fine)) fine[fk]=state[k];
+      const ch=document.createElement("div");
+      ch.className="chip"; ch.dataset.s=fine[fk]; ch.textContent=t;
+      ch.onclick=()=>{
+        const order=["yes","maybe","no"];
+        const i=order.indexOf(fine[fk]);
+        fine[fk]=order[(i+1)%3];
+        buildFine();
+      };
+      chips.appendChild(ch);
+    });
+    wrap.appendChild(chips); f.appendChild(wrap);
+  });
+}
+
+function submit(){
+  const secs=((Date.now()-t0)/1000).toFixed(1);
+  document.getElementById("s2").classList.add("hide");
+  document.getElementById("bar").classList.add("hide");
+  document.getElementById("s3").classList.remove("hide");
+  document.getElementById("elapsed").textContent=secs;
+  const vals=Object.values(fine);
+  const y=vals.filter(v=>v==="yes").length,
+        m=vals.filter(v=>v==="maybe").length,
+        n=vals.filter(v=>v==="no").length;
+  document.getElementById("sum").innerHTML=
+    `<div><span>Blocks selected</span><b>${picked().length} of 21</b></div>`+
+    `<div><span>Slots that work</span><b>${y}</b></div>`+
+    `<div><span>If needed</span><b>${m}</b></div>`+
+    `<div><span>Ruled out in stage 2</span><b>${n}</b></div>`+
+    `<div><span>Calendar used</span><b>${busy?"yes":"no"}</b></div>`;
+  window.scrollTo(0,0);
+}
+
+/* ---- organizer view ---- */
+const SLOTS_VIEW=[
+  {when:"Thu Nov 6 · 3:00pm", cov:5, note:"<b>Dev</b> hasn't responded yet"},
+  {when:"Fri Nov 7 · 2:00pm", cov:5, note:"<b>Cara</b> can't make it (optional)"},
+  {when:"Wed Nov 5 · 10:00am", cov:4, note:"<b>Ana</b> would rather not · <b>Cara</b> can't make it"}
+];
+
+function showOrg(){
+  document.getElementById("s3").classList.add("hide");
+  document.getElementById("s4").classList.remove("hide");
+  document.querySelector("h1").textContent="Team sync — 5 of 6 replied";
+  document.querySelector(".sub").textContent="Nov 3–9 · 45 min · you're the organizer";
+  document.getElementById("timer").style.display="none";
+  scen("A"); window.scrollTo(0,0);
+}
+
+function scen(which){
+  document.getElementById("tgA").classList.toggle("on",which==="A");
+  document.getElementById("tgB").classList.toggle("on",which==="B");
+  document.getElementById("decided").classList.add("hide");
+
+  const b=document.getElementById("banner");
+  if(which==="A"){
+    b.innerHTML=`<div class="banner go">
+      <h3>Thursday 3pm wins no matter what Dev says.</h3>
+      <p>Everyone required has replied, and no answer Dev could give changes the order.</p>
+      <button onclick="lock()">Lock Thursday 3pm</button>
+    </div>`;
+  }else{
+    b.innerHTML=`<div class="banner wait">
+      <h3>Waiting on Ben.</h3>
+      <p>Ben is required and hasn't replied. Nothing can be settled until he does —
+         he could still rule out any of these. Cara and Dev are also outstanding,
+         but neither can change the order.</p>
+      <button onclick="return false">Nudge Ben only</button>
+    </div>`;
+  }
+
+  document.getElementById("slots").innerHTML=SLOTS_VIEW.map((s,i)=>`
+    <div class="slot${i===0?" lead":""}">
+      <div class="top"><span class="when">${s.when}</span><span class="cov">${s.cov} of 6</span></div>
+      <div class="bar2"><i style="width:${s.cov/6*100}%"></i></div>
+      <div class="who">${s.note}</div>
+    </div>`).join("");
+}
+
+function lock(){
+  document.getElementById("banner").innerHTML="";
+  document.getElementById("slots").innerHTML="";
+  document.getElementById("decided").classList.remove("hide");
+  window.scrollTo(0,0);
+}
+</script>
+</body>
+</html>

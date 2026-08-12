@@ -1,0 +1,22 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: overlap-db
+    environment:
+      POSTGRES_USER: overlap
+      POSTGRES_PASSWORD: overlap
+      POSTGRES_DB: overlap
+    ports:
+      - "5434:5432"
+    volumes:
+      - overlap-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # Without this, `docker compose up -d` returns before Postgres accepts
+      # connections and the first `goose up` of the day fails for no reason.
+      test: ["CMD-SHELL", "pg_isready -U overlap -d overlap"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  overlap-pgdata:

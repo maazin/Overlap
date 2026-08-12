@@ -1,0 +1,17 @@
+# Go
+/bin/
+*.test
+
+# Node / SvelteKit
+node_modules/
+/web/.svelte-kit/
+/web/build/
+/web/.vercel/
+
+# Env
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
