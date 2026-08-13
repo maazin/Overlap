@@ -23,13 +23,44 @@
 		type Cell
 	} from '$lib/dayparts';
 	import { loadToken, saveToken, detectTimezone, allTimezones } from '$lib/identity';
+	import type { PageData } from './$types';
+
+	let { data }: { data: PageData } = $props();
 
 	const slug = page.params.slug!;
+
+	/**
+	 * Link preview text, built from the server-rendered event so a crawler sees
+	 * it. Phrased as an invitation to act rather than a description of a page,
+	 * because in a group chat this line is the entire pitch.
+	 */
+	const ogTitle = $derived(data.event ? `When can you make ${data.event.title}?` : 'Overlap');
+	const ogDescription = $derived(
+		data.event
+			? `${data.event.slot_minutes} minutes, ${windowLabel(data.event)}. Tap the times that work — no account, about fifteen seconds.`
+			: "Everyone's free time, in fifteen seconds."
+	);
+
+	/** "Nov 3–9" style range, rendered from the organizer's window dates. */
+	function windowLabel(ev: EventView): string {
+		const fmt = (d: string) =>
+			new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(
+				new Date(`${d}T12:00:00Z`)
+			);
+		return ev.window_start === ev.window_end
+			? fmt(ev.window_start)
+			: `${fmt(ev.window_start)}–${fmt(ev.window_end)}`;
+	}
 
 	type Stage = 'loading' | 'name' | 'coarse' | 'fine' | 'done' | 'error';
 
 	let stage = $state<Stage>('loading');
+	// Seeded from the server render so the page paints with real content
+	// instead of a spinner; the client fetch below then adds the "you" half.
 	let event = $state<EventView | null>(null);
+	$effect.pre(() => {
+		if (!event) event = data.event;
+	});
 	let error = $state('');
 	let busy = $state(false);
 
@@ -200,7 +231,18 @@
 </script>
 
 <svelte:head>
-	<title>{event ? event.title : 'Overlap'}</title>
+	<title>{ogTitle}</title>
+	<meta name="description" content={ogDescription} />
+
+	<!-- iMessage, WhatsApp, Discord and Slack all read these, and none of them
+	     run JavaScript, which is why the event is loaded server-side. -->
+	<meta property="og:type" content="website" />
+	<meta property="og:site_name" content="Overlap" />
+	<meta property="og:title" content={ogTitle} />
+	<meta property="og:description" content={ogDescription} />
+	<meta name="twitter:card" content="summary" />
+	<meta name="twitter:title" content={ogTitle} />
+	<meta name="twitter:description" content={ogDescription} />
 </svelte:head>
 
 <div class="mx-auto max-w-[480px] px-4 pt-5 pb-32">
