@@ -77,11 +77,13 @@ func TestSixPersonFixtureRanking(t *testing.T) {
 	//        six people outside sociable hours -> 0.90, capped at 0.45
 	//        score = 0.55
 	//
-	// 11:00  required 0.7, 1.0, 0.7 | optional 0.7, 0.7, Dev says no
-	//        weights 3(1.0) + 2(0.5) = 4.0
-	//        weighted = 2.4 + 0.7 = 3.1             mean = 0.775
-	//        base = 0.7(0.775) + 0.3(0.7) = 0.7525
-	//        but coverage is 5, so it sorts behind every slot of coverage 6
+	// 11:00  required 0.7, 1.0, 0.7 | optional 0.7, 0.7, and Dev says no
+	//        Dev's refusal carries its own zero rather than vanishing, so the
+	//        weight stays 3(1.0) + 3(0.5) = 4.5
+	//        weighted = 2.4 + 0.5(0 + 0.7 + 0.7) = 3.1   mean = 0.688889
+	//        base = 0.7(0.688889) + 0.3(0.7) = 0.692222
+	//        Excluding Dev costs score directly, which is why score can lead
+	//        the ordering without rewarding exclusion.
 	//
 	// 16:00  Ana is required and said no -> eliminated, sorts last.
 	want := []struct {
@@ -93,9 +95,9 @@ func TestSixPersonFixtureRanking(t *testing.T) {
 		eliminated bool
 	}{
 		{nine, "09:00", 0.7855555555555556, 0, 6, false},
+		{elev, "11:00", 0.6922222222222222, 0, 5, false},
 		{two, "14:00", 0.5877777777777777, 0, 6, false},
 		{early, "07:00", 0.55, 0.45, 6, false},
-		{elev, "11:00", 0.7525, 0, 5, false},
 		{four, "16:00", 0, 0, 5, true},
 	}
 
@@ -164,32 +166,32 @@ func TestUnsociableDemotesAnOtherwisePerfectSlot(t *testing.T) {
 	}
 }
 
-// TestCoverageOutranksScore documents a deliberate departure from the ranking
-// order written in the build plan, which put composite score ahead of optional
-// coverage.
+// TestExcludingSomeoneCostsScore is the invariant that lets composite score
+// lead the ranking safely.
 //
-// The reason is that an optional participant who says no is dropped from the
-// weighted mean entirely rather than scoring zero. Ordering on score first
-// therefore *rewards* excluding whoever liked a slot least: removing a 0.3 from
-// the mean raises it. Coverage first removes that incentive, and it matches the
-// headline the product actually shows, which is "5 of 6 can make it".
-func TestCoverageOutranksScore(t *testing.T) {
+// If an optional refusal simply dropped out of the weighted mean, excluding
+// whoever liked a slot least would *raise* its score, and ranking on score
+// would prefer the slot that leaves someone out. Because the refusal carries a
+// zero instead, the inclusive slot scores higher on its own merits and no
+// special ordering rule is needed to protect it.
+func TestExcludingSomeoneCostsScore(t *testing.T) {
 	ps := []Participant{
 		{ID: "ana", Name: "Ana", Role: RoleRequired, Loc: ny},
 		{ID: "dev", Name: "Dev", Role: RoleOptional, Loc: ny},
 	}
 	inclusive, exclusive := slotAt(10), slotAt(15)
 
-	// Dev merely tolerates the inclusive slot and refuses the other. Dropping
-	// Dev's 0.3 makes the exclusive slot score higher on the mean.
+	// Dev merely tolerates the inclusive slot and refuses the other. Ana is
+	// equally happy with both, so Dev is the only difference between them.
 	rs := Responses{
 		"ana": {inclusive: TierPreferred, exclusive: TierPreferred},
 		"dev": {inclusive: TierIfNeeded, exclusive: TierNo},
 	}
 
-	if a, b := ScoreSlot(inclusive, ps, rs, DefaultConfig()), ScoreSlot(exclusive, ps, rs, DefaultConfig()); a.Score >= b.Score {
-		t.Fatalf("fixture is not exercising the case: inclusive %.4f should score below exclusive %.4f",
-			a.Score, b.Score)
+	a := ScoreSlot(inclusive, ps, rs, DefaultConfig())
+	b := ScoreSlot(exclusive, ps, rs, DefaultConfig())
+	if a.Score <= b.Score {
+		t.Fatalf("including Dev at if_needed (%.4f) must beat excluding them (%.4f)", a.Score, b.Score)
 	}
 
 	got := Rank([]time.Time{exclusive, inclusive}, ps, rs, DefaultConfig())

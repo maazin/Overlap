@@ -10,6 +10,7 @@ import (
 	"github.com/maazinshaikh/overlap/api/internal/ics"
 	"github.com/maazinshaikh/overlap/api/internal/results"
 	"github.com/maazinshaikh/overlap/api/internal/solver"
+	"github.com/maazinshaikh/overlap/api/internal/sse"
 	"github.com/maazinshaikh/overlap/api/internal/store"
 )
 
@@ -43,7 +44,86 @@ type solveResponse struct {
 	Total     int          `json:"total"`
 	Ranked    []rankedSlot `json:"ranked"`
 
+	Dominance dominanceView `json:"dominance"`
+
 	DecidedSlotStart *time.Time `json:"decided_slot_start,omitempty"`
+}
+
+// Verdicts the dominance analysis can reach. These are the distinct situations
+// an organizer can be in, and each one implies a different next action, which
+// is why the server names the state rather than leaving the client to infer it
+// from three booleans.
+const (
+	// VerdictDecided -- already locked.
+	VerdictDecided = "decided"
+	// VerdictDecidable -- one slot wins whatever the outstanding people say.
+	VerdictDecidable = "decidable"
+	// VerdictWaitingRequired -- a required person is silent, so they could
+	// still veto anything and nothing can be settled.
+	VerdictWaitingRequired = "waiting_on_required"
+	// VerdictWaitingRelevant -- named people could still change the order.
+	VerdictWaitingRelevant = "waiting_on_relevant"
+	// VerdictTied -- undecided with nobody worth chasing, because no
+	// outstanding answer separates the leaders. Either will do.
+	VerdictTied = "tied"
+	// VerdictNoSlots -- every slot is vetoed by someone required.
+	VerdictNoSlots = "no_slots"
+)
+
+type dominanceView struct {
+	// Verdict is what the UI should say. The other fields are what it needs to
+	// say it specifically.
+	Verdict   string `json:"verdict"`
+	Decidable bool   `json:"decidable"`
+
+	Leader *time.Time `json:"leader,omitempty"`
+
+	// BlockingRequired names required people who have not answered. While this
+	// is non-empty nothing is decidable, which is not a limitation but the
+	// correct answer: any of them could still rule out the leader.
+	BlockingRequired []string `json:"blocking_required,omitempty"`
+
+	// Relevant names outstanding people whose answer could still change which
+	// slot wins. Anyone absent from this list should not be chased.
+	Relevant []string `json:"relevant,omitempty"`
+}
+
+// toDominanceView turns the analysis into a verdict plus its supporting names.
+func toDominanceView(d solver.Dominance, ranked []solver.SlotScore, status string) dominanceView {
+	out := dominanceView{
+		Decidable:        d.Decidable,
+		BlockingRequired: d.BlockingRequired,
+		Relevant:         d.Relevant,
+	}
+	if !d.Leader.IsZero() {
+		leader := d.Leader.UTC()
+		out.Leader = &leader
+	}
+
+	anyAlive := false
+	for _, r := range ranked {
+		if !r.Eliminated {
+			anyAlive = true
+			break
+		}
+	}
+
+	switch {
+	case status == "decided":
+		out.Verdict = VerdictDecided
+	case !anyAlive:
+		out.Verdict = VerdictNoSlots
+	case d.Decidable:
+		out.Verdict = VerdictDecidable
+	case len(d.BlockingRequired) > 0:
+		out.Verdict = VerdictWaitingRequired
+	case len(d.Relevant) > 0:
+		out.Verdict = VerdictWaitingRelevant
+	default:
+		// Undecided with nobody to wait for is a genuine tie, not a stall.
+		out.Verdict = VerdictTied
+	}
+	return out
 }
 
 func (s *Server) handleSolve(w http.ResponseWriter, r *http.Request) {
@@ -53,7 +133,7 @@ func (s *Server) handleSolve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ranked, ps, err := s.rank(r, ev)
+	ranked, ps, dom, err := s.rankAndAnalyze(r, ev)
 	if err != nil {
 		s.log.ErrorContext(r.Context(), "solve", "err", err, "slug", ev.Slug)
 		s.writeError(w, r, http.StatusInternalServerError, "could not compute results")
@@ -66,6 +146,7 @@ func (s *Server) handleSolve(w http.ResponseWriter, r *http.Request) {
 		Responded:        results.RespondedCount(ps),
 		Total:            len(ps),
 		Ranked:           make([]rankedSlot, 0, len(ranked)),
+		Dominance:        toDominanceView(dom, ranked, ev.Status),
 		DecidedSlotStart: ev.DecidedSlotStart,
 	}
 	for _, sc := range ranked {
@@ -77,23 +158,38 @@ func (s *Server) handleSolve(w http.ResponseWriter, r *http.Request) {
 
 // rank loads everything an event's results depend on and scores it.
 func (s *Server) rank(r *http.Request, ev store.Event) ([]solver.SlotScore, []store.Participant, error) {
+	ranked, ps, _, err := s.rankAndAnalyze(r, ev)
+	return ranked, ps, err
+}
+
+// rankAndAnalyze loads the event's data once and derives both the ranking and
+// the dominance verdict from it, so the two can never be computed from
+// different snapshots and disagree about who is winning.
+func (s *Server) rankAndAnalyze(r *http.Request, ev store.Event) (
+	[]solver.SlotScore, []store.Participant, solver.Dominance, error,
+) {
 	exp, err := ev.Slots()
 	if err != nil {
-		return nil, nil, fmt.Errorf("expand slots: %w", err)
+		return nil, nil, solver.Dominance{}, fmt.Errorf("expand slots: %w", err)
 	}
 
 	ps, err := s.store.Participants(r.Context(), ev.ID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, solver.Dominance{}, err
 	}
 
 	rs, err := s.store.ResponsesForEvent(r.Context(), ev.ID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, solver.Dominance{}, err
 	}
 
 	in := results.Build(ps, rs, exp.Starts)
-	return solver.Rank(in.Slots, in.Participants, in.Responses, solver.DefaultConfig()), ps, nil
+	cfg := solver.DefaultConfig()
+
+	return solver.Rank(in.Slots, in.Participants, in.Responses, cfg),
+		ps,
+		solver.Analyze(in.Slots, in.Participants, in.Responses, cfg),
+		nil
 }
 
 func toRankedSlot(sc solver.SlotScore, total int) rankedSlot {
@@ -174,6 +270,7 @@ func (s *Server) handleDecide(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.publish(a.event.ID, sse.EventDecided)
 	s.writeJSON(w, r, http.StatusOK, map[string]any{
 		"slug":               updated.Slug,
 		"status":             updated.Status,
@@ -196,6 +293,7 @@ func (s *Server) handleReopen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.publish(a.event.ID, sse.EventReopened)
 	s.writeJSON(w, r, http.StatusOK, map[string]any{
 		"slug":   updated.Slug,
 		"status": updated.Status,

@@ -184,9 +184,17 @@ func ScoreSlot(start time.Time, ps []Participant, rs Responses, cfg Config) Slot
 			if p.Role == RoleRequired {
 				s.Eliminated = true
 				s.EliminatedBy = append(s.EliminatedBy, p.Name)
-			} else {
-				s.Excludes = append(s.Excludes, p.Name)
+				continue
 			}
+
+			// An optional refusal scores zero rather than dropping out of the
+			// mean. Dropping it would make excluding somebody *raise* the
+			// score: removing a 0.3 from the average lifts it, so the ranking
+			// would actively prefer the slot that leaves out whoever liked it
+			// least. Counting the refusal as a zero it has to carry is what
+			// makes excluding a person cost something.
+			s.Excludes = append(s.Excludes, p.Name)
+			weights += cfg.OptionalWeight
 			continue
 		}
 
@@ -261,18 +269,27 @@ func RankWithHistory(slots []time.Time, ps []Participant, rs Responses, cfg Conf
 		out = append(out, ScoreSlot(s, ps, rs, cfg))
 	}
 
+	// Ordering, in the sequence the build plan specifies: a slot no required
+	// participant has vetoed, then composite score, then optional coverage,
+	// then the earliest option.
+	//
+	// Score leads because an optional refusal now costs score directly, so the
+	// composite already accounts for who a slot leaves out. Coverage stays as a
+	// tiebreak for genuinely close calls, ahead of history so that habit is
+	// consulted last and can never outrank a slot more people can attend.
 	sort.SliceStable(out, func(i, j int) bool {
 		a, b := out[i], out[j]
 		if a.Eliminated != b.Eliminated {
 			return !a.Eliminated
 		}
-		if a.Coverage != b.Coverage {
-			return a.Coverage > b.Coverage
-		}
 
 		diff := a.Score - b.Score
 		if diff > cfg.HistoryEpsilon || diff < -cfg.HistoryEpsilon {
 			return diff > 0
+		}
+
+		if a.Coverage != b.Coverage {
+			return a.Coverage > b.Coverage
 		}
 
 		if hist != nil {
@@ -455,12 +472,24 @@ func fillUnknowns(slots []time.Time, ps []Participant, rs Responses, only *strin
 }
 
 // relevantNonResponders reports which outstanding participants can still move
-// the outcome. For each one we compute the set of slots that could plausibly
-// win with that person pinned to their worst answer, then again pinned to their
-// best. If the two sets differ, their answer matters and they are worth
-// chasing. If not, chasing them is noise.
+// the outcome, so the UI can chase one person instead of nagging everybody.
+//
+// The test is whether a person's *uncertainty* widens the field. We compute the
+// slots that could still win as things stand, then again with that person's
+// answer settled -- once badly, once well. If settling them either way narrows
+// the field, their answer is doing work and they are worth a nudge.
+//
+// Comparing the two settled cases against each other is not enough on its own,
+// and getting that wrong produces a contradiction the user can see: a page that
+// says nothing can be decided yet while naming nobody to wait for. Someone can
+// change the order by refusing one slot and accepting another, and both settled
+// cases give them the same answer everywhere, so that manoeuvre is invisible
+// unless the unsettled case is in the comparison. The unsettled case is the one
+// that bounds each slot independently.
 func relevantNonResponders(slots []time.Time, ps []Participant, rs Responses, cfg Config) []string {
 	var out []string
+
+	asThingsStand := possibleWinners(slots, ps, rs, cfg)
 
 	for _, p := range ps {
 		missing := false
@@ -478,7 +507,7 @@ func relevantNonResponders(slots []time.Time, ps []Participant, rs Responses, cf
 		worst := possibleWinners(slots, ps, fillUnknowns(slots, ps, rs, &id, TierNo), cfg)
 		best := possibleWinners(slots, ps, fillUnknowns(slots, ps, rs, &id, TierPreferred), cfg)
 
-		if !sameSet(worst, best) {
+		if !sameSet(worst, best) || !sameSet(asThingsStand, worst) || !sameSet(asThingsStand, best) {
 			out = append(out, p.Name)
 		}
 	}

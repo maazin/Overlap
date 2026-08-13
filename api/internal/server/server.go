@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/maazinshaikh/overlap/api/internal/sse"
 	"github.com/maazinshaikh/overlap/api/internal/store"
 )
 
@@ -14,14 +15,18 @@ import (
 // rather than reached for through globals, so a test can build a Server with
 // fakes and exercise Routes() through httptest.
 type Server struct {
-	cfg   Config
-	log   *slog.Logger
-	store *store.Store
+	cfg    Config
+	log    *slog.Logger
+	store  *store.Store
+	broker *sse.Broker
 }
 
 // New returns a Server. It does no IO, so it cannot fail.
+//
+// The broker is per-process state rather than a package global, so two servers
+// in one test binary do not broadcast into each other.
 func New(cfg Config, log *slog.Logger, st *store.Store) *Server {
-	return &Server{cfg: cfg, log: log, store: st}
+	return &Server{cfg: cfg, log: log, store: st, broker: sse.NewBroker()}
 }
 
 // Routes builds the handler tree. Middleware is applied outermost-first:
@@ -41,6 +46,7 @@ func (s *Server) Routes() http.Handler {
 		s.requireParticipant(http.HandlerFunc(s.handlePutResponses)))
 
 	mux.HandleFunc("GET /api/events/{slug}/solve", s.handleSolve)
+	mux.HandleFunc("GET /api/events/{slug}/stream", s.handleStream)
 	mux.HandleFunc("GET /api/events/{slug}/decided.ics", s.handleDecidedICS)
 	mux.Handle("POST /api/events/{slug}/decide",
 		s.requireParticipant(http.HandlerFunc(s.handleDecide)))

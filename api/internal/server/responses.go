@@ -12,6 +12,7 @@ import (
 
 	"github.com/maazinshaikh/overlap/api/internal/dayparts"
 	"github.com/maazinshaikh/overlap/api/internal/solver"
+	"github.com/maazinshaikh/overlap/api/internal/sse"
 	"github.com/maazinshaikh/overlap/api/internal/store"
 	"github.com/maazinshaikh/overlap/api/internal/tz"
 )
@@ -185,6 +186,7 @@ func (s *Server) handlePutResponses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.publish(a.event.ID, sse.EventResponseSubmitted)
 	s.writeJSON(w, r, http.StatusOK, putResponsesResponse{Saved: len(rs)})
 }
 

@@ -16,6 +16,7 @@ api/                 Go 1.26 HTTP API — deploys to Fly.io
   internal/solver/   pure scoring and dominance engine (no IO, no clock)
   internal/results/  binds stored rows to solver inputs; owns what silence means
   internal/ics/      pure RFC 5545 rendering for the decided-event download
+  internal/sse/      in-process pub/sub broker and the event-stream encoding
   internal/store/    the only package that talks to Postgres
   internal/dbgen/    sqlc-generated, do not edit
   internal/tz/       IANA zone resolution for untrusted names
@@ -74,7 +75,25 @@ GET  /api/events/{slug}/solve           ranked slots, coverage and exclusions
 POST /api/events/{slug}/decide          organizer locks a slot
 POST /api/events/{slug}/reopen          organizer unlocks it again
 GET  /api/events/{slug}/decided.ics     calendar download for the locked slot
+GET  /api/events/{slug}/stream          SSE: response_submitted, decided, ping
 ```
+
+**Dominance.** `/solve` returns a verdict naming the situation rather than
+leaving the client to infer it: `decidable`, `waiting_on_required`,
+`waiting_on_relevant`, `tied`, `no_slots`, `decided`. While any *required*
+participant is silent nothing is ever decidable, because they could still veto
+the leader. That is not a limitation, it is the correct answer, and it is what
+lets the page say "Waiting on Sam" instead of "4 of 6 replied".
+
+**Live updates.** Messages carry no payload; every one means "refetch". A
+dropped or coalesced event therefore costs one stale second and can never leave
+a page holding a half-applied update, and reconnecting needs no replay.
+
+Recovery does not trust the browser to notice a dropped stream, because it does
+not reliably notice -- a killed server can leave `EventSource` in the OPEN state
+with no error and no retry. The server pings every 15 seconds and the client
+treats silence as death, redialling and refetching. It also refetches when a
+backgrounded tab becomes visible, which is how most staleness actually happens.
 
 **No score is ever returned.** The composite orders the ranking on the server
 and stays there. A number like 0.7855 printed next to a time reads as precision

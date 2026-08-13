@@ -12,8 +12,9 @@
 		type SolveView,
 		type RankedSlot
 	} from '$lib/api';
-	import { groupByDay, slotLabel, BLOCKS, BLOCK_LABELS, localDate, localHour } from '$lib/dayparts';
+	import { groupByDay, slotLabel, BLOCKS } from '$lib/dayparts';
 	import { loadToken, detectTimezone } from '$lib/identity';
+	import { subscribe } from '$lib/live';
 
 	const slug = page.params.slug!;
 
@@ -55,6 +56,62 @@
 			error = e instanceof Error ? e.message : String(e);
 		}
 	}
+
+	/** Everyone who has not replied, for the decidable message. */
+	const outstanding = $derived(
+		(event?.participants ?? []).filter((p) => !p.responded).map((p) => p.name)
+	);
+
+	/**
+	 * What the banner says, derived from the verdict rather than from raw
+	 * counts. The wording is the feature: naming who is blocking, or saying
+	 * plainly that nobody is, is what a poll cannot do.
+	 */
+	const banner = $derived.by(() => {
+		const d = result?.dominance;
+		if (!d || decided) return null;
+
+		const leaderLabel = d.leader ? longLabel(new Date(d.leader)) : 'The leading time';
+		const names = (xs: string[] | undefined) => (xs ?? []).join(' and ');
+		const blocking = d.blocking_required ?? [];
+
+		switch (d.verdict) {
+			case 'decidable':
+				return {
+					tone: 'go' as const,
+					title: `${leaderLabel} wins whatever anyone else says.`,
+					body: outstanding.length
+						? `${names(outstanding)} ${outstanding.length === 1 ? 'has' : 'have'} not replied, and no answer they could give changes the order.`
+						: 'Everyone has replied.'
+				};
+			case 'waiting_on_required':
+				return {
+					tone: 'wait' as const,
+					title: `Waiting on ${names(blocking)}.`,
+					body: `${blocking.length === 1 ? 'They are required and have' : 'They are required and have'} not replied. Nothing can be settled until they do, because they could still rule out any of these.`
+				};
+			case 'waiting_on_relevant':
+				return {
+					tone: 'wait' as const,
+					title: `Only ${names(d.relevant)} can change the outcome.`,
+					body: 'Anyone else outstanding can be left alone; nothing they say moves the order.'
+				};
+			case 'tied':
+				return {
+					tone: 'go' as const,
+					title: 'It is a tie.',
+					body: 'No outstanding reply separates the leading times. Pick whichever suits.'
+				};
+			case 'no_slots':
+				return {
+					tone: 'wait' as const,
+					title: 'No time works.',
+					body: 'Every slot is ruled out by someone required. Widen the window, or make someone optional.'
+				};
+			default:
+				return null;
+		}
+	});
 
 	async function lock(slotStart: string, force = false) {
 		if (!token) return;
@@ -112,7 +169,12 @@
 		}).format(d);
 	}
 
-	if (browser) load();
+	if (browser) {
+		load();
+		// Live updates. The teardown matters: without it a navigated-away page
+		// keeps a connection open and the server keeps a subscriber for it.
+		$effect(() => subscribe(slug, load));
+	}
 </script>
 
 <svelte:head>
@@ -168,6 +230,17 @@
 				{/if}
 			</div>
 		{:else}
+			{#if banner}
+				<div
+					class="mb-3.5 rounded-2xl p-4 {banner.tone === 'go'
+						? 'bg-[#0f2f22] text-[#d9f2e6]'
+						: 'bg-maybe-bg border border-[#e8d5a8] text-[#5c3d05]'}"
+				>
+					<h2 class="mb-1 text-[15.5px] font-semibold tracking-tight">{banner.title}</h2>
+					<p class="m-0 text-[13px] opacity-85">{banner.body}</p>
+				</div>
+			{/if}
+
 			<!-- Ranked candidates -->
 			<div class="mb-3.5">
 				{#each top as r, i (r.slot_start)}

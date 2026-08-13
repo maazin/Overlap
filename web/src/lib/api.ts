@@ -164,12 +164,32 @@ export type RankedSlot = {
 	unsociable: boolean;
 };
 
+/** The distinct situations an organizer can be in. Each implies a different
+ * next action, which is why the server names the state rather than leaving the
+ * client to infer it from booleans. */
+export type Verdict =
+	| 'decided'
+	| 'decidable'
+	| 'waiting_on_required'
+	| 'waiting_on_relevant'
+	| 'tied'
+	| 'no_slots';
+
+export type DominanceView = {
+	verdict: Verdict;
+	decidable: boolean;
+	leader?: string;
+	blocking_required?: string[];
+	relevant?: string[];
+};
+
 export type SolveView = {
 	slug: string;
 	status: string;
 	responded: number;
 	total: number;
 	ranked: RankedSlot[];
+	dominance: DominanceView;
 	decided_slot_start?: string;
 };
 
