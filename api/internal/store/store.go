@@ -10,7 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/maazinshaikh/overlap/api/internal/dbgen"
+	"github.com/maazin/Overlap/api/internal/dbgen"
 )
 
 // Store owns the connection pool.

@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/maazinshaikh/overlap/api/internal/slots"
-	"github.com/maazinshaikh/overlap/api/internal/solver"
+	"github.com/maazin/Overlap/api/internal/slots"
+	"github.com/maazin/Overlap/api/internal/solver"
 )
 
 var (

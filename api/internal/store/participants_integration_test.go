@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/maazinshaikh/overlap/api/internal/solver"
+	"github.com/maazin/Overlap/api/internal/solver"
 )
 
 func mustEvent(t *testing.T, st *Store) Event {

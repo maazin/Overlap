@@ -10,9 +10,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/maazinshaikh/overlap/api/internal/dbgen"
-	"github.com/maazinshaikh/overlap/api/internal/slots"
-	"github.com/maazinshaikh/overlap/api/internal/tz"
+	"github.com/maazin/Overlap/api/internal/dbgen"
+	"github.com/maazin/Overlap/api/internal/slots"
+	"github.com/maazin/Overlap/api/internal/tz"
 )
 
 // ErrNotFound is returned when a lookup matches nothing.

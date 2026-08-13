@@ -10,9 +10,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/maazinshaikh/overlap/api/internal/slots"
-	"github.com/maazinshaikh/overlap/api/internal/store"
-	"github.com/maazinshaikh/overlap/api/internal/tz"
+	"github.com/maazin/Overlap/api/internal/slots"
+	"github.com/maazin/Overlap/api/internal/store"
+	"github.com/maazin/Overlap/api/internal/tz"
 )
 
 // maxBodyBytes caps a request body. Event creation is a handful of short

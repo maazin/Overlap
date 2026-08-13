@@ -19,9 +19,9 @@ import (
 	// one is a dependency that fails silently and totally.
 	_ "time/tzdata"
 
-	"github.com/maazinshaikh/overlap/api/internal/server"
-	"github.com/maazinshaikh/overlap/api/internal/store"
-	"github.com/maazinshaikh/overlap/api/internal/tz"
+	"github.com/maazin/Overlap/api/internal/server"
+	"github.com/maazin/Overlap/api/internal/store"
+	"github.com/maazin/Overlap/api/internal/tz"
 )
 
 func main() {

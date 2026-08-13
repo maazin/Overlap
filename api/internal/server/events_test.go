@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/maazinshaikh/overlap/api/internal/slots"
+	"github.com/maazin/Overlap/api/internal/slots"
 )
 
 func validRequest() createEventRequest {

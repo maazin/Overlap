@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/maazinshaikh/overlap/api/internal/solver"
-	"github.com/maazinshaikh/overlap/api/internal/store"
+	"github.com/maazin/Overlap/api/internal/solver"
+	"github.com/maazin/Overlap/api/internal/store"
 )
 
 func starts() []time.Time {

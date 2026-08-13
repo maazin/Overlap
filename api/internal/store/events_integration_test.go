@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/maazinshaikh/overlap/api/internal/slots"
+	"github.com/maazin/Overlap/api/internal/slots"
 )
 
 // testStore connects to the database named by TEST_DATABASE_URL, skipping when

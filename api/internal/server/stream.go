@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/maazinshaikh/overlap/api/internal/sse"
+	"github.com/maazin/Overlap/api/internal/sse"
 )
 
 const (

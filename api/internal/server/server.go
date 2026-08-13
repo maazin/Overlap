@@ -7,8 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/maazinshaikh/overlap/api/internal/sse"
-	"github.com/maazinshaikh/overlap/api/internal/store"
+	"github.com/maazin/Overlap/api/internal/sse"
+	"github.com/maazin/Overlap/api/internal/store"
 )
 
 // Server holds everything a handler might need. Dependencies are injected

@@ -14,8 +14,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/maazinshaikh/overlap/api/internal/slots"
-	"github.com/maazinshaikh/overlap/api/internal/solver"
+	"github.com/maazin/Overlap/api/internal/slots"
+	"github.com/maazin/Overlap/api/internal/solver"
 )
 
 // Block is one of the three coarse buckets a day is divided into.

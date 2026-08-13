@@ -10,11 +10,11 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/maazinshaikh/overlap/api/internal/dayparts"
-	"github.com/maazinshaikh/overlap/api/internal/solver"
-	"github.com/maazinshaikh/overlap/api/internal/sse"
-	"github.com/maazinshaikh/overlap/api/internal/store"
-	"github.com/maazinshaikh/overlap/api/internal/tz"
+	"github.com/maazin/Overlap/api/internal/dayparts"
+	"github.com/maazin/Overlap/api/internal/solver"
+	"github.com/maazin/Overlap/api/internal/sse"
+	"github.com/maazin/Overlap/api/internal/store"
+	"github.com/maazin/Overlap/api/internal/tz"
 )
 
 const maxNameRunes = 60

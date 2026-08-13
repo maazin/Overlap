@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/maazinshaikh/overlap/api/internal/store"
+	"github.com/maazin/Overlap/api/internal/store"
 )
 
 // TokenHeader carries the opaque participant token. It is a header rather than

@@ -13,8 +13,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/maazinshaikh/overlap/api/internal/dbgen"
-	"github.com/maazinshaikh/overlap/api/internal/solver"
+	"github.com/maazin/Overlap/api/internal/dbgen"
+	"github.com/maazin/Overlap/api/internal/solver"
 )
 
 // Roles a participant can hold. Only a required participant can veto a slot.

@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/maazinshaikh/overlap/api/internal/ics"
-	"github.com/maazinshaikh/overlap/api/internal/results"
-	"github.com/maazinshaikh/overlap/api/internal/solver"
-	"github.com/maazinshaikh/overlap/api/internal/sse"
-	"github.com/maazinshaikh/overlap/api/internal/store"
+	"github.com/maazin/Overlap/api/internal/ics"
+	"github.com/maazin/Overlap/api/internal/results"
+	"github.com/maazin/Overlap/api/internal/solver"
+	"github.com/maazin/Overlap/api/internal/sse"
+	"github.com/maazin/Overlap/api/internal/store"
 )
 
 // rankedSlot is one scored slot as the API reports it.

@@ -1,4 +1,4 @@
-module github.com/maazinshaikh/overlap/api
+module github.com/maazin/Overlap/api
 
 go 1.26.5
 

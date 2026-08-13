@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/maazinshaikh/overlap/api/internal/dbgen"
+	"github.com/maazin/Overlap/api/internal/dbgen"
 )
 
 // Decide locks an event onto a slot.

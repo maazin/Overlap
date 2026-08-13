@@ -9,9 +9,9 @@ package results
 import (
 	"time"
 
-	"github.com/maazinshaikh/overlap/api/internal/solver"
-	"github.com/maazinshaikh/overlap/api/internal/store"
-	"github.com/maazinshaikh/overlap/api/internal/tz"
+	"github.com/maazin/Overlap/api/internal/solver"
+	"github.com/maazin/Overlap/api/internal/store"
+	"github.com/maazin/Overlap/api/internal/tz"
 )
 
 // Input is everything the solver needs, derived from stored rows.
