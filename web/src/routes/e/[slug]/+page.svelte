@@ -5,6 +5,8 @@
 		getEvent,
 		joinEvent,
 		putResponses,
+		connectICS,
+		disconnectCalendar,
 		APIError,
 		type EventView,
 		type Tier,
@@ -69,6 +71,14 @@
 	let showTZPicker = $state(false);
 	let token = $state<string | null>(null);
 
+	let calendarURL = $state('');
+	let calendarOpen = $state(false);
+	let calendarNote = $state('');
+	const calendarSource = $derived(event?.you?.calendar_source ?? 'none');
+
+	/** Slots the calendar says are already committed, keyed by instant. */
+	let busySlots = $state<Record<string, true>>({});
+
 	/** Coarse selections, keyed by `date|block`. Absent means untapped, i.e. no. */
 	let coarse = $state<Record<string, Tier>>({});
 	/** Fine overrides, keyed by slot ISO string. */
@@ -130,9 +140,17 @@
 	function hydrate(ev: EventView) {
 		const nextCoarseState: Record<string, Tier> = {};
 		const nextFineState: Record<string, Tier> = {};
+		const nextBusy: Record<string, true> = {};
 
 		for (const r of ev.you?.responses ?? []) {
 			const instant = new Date(r.slot_start);
+			if (r.source === 'calendar') {
+				// Shown as already-busy rather than folded into the editors. An
+				// inferred tier is a proposal to correct, not an answer the
+				// person gave, and the two must stay tellable apart.
+				nextBusy[slotKey(instant)] = true;
+				continue;
+			}
 			if (r.source === 'coarse') {
 				nextCoarseState[cellKey(cellFor(instant, ev.you!.timezone))] = r.tier;
 			} else {
@@ -150,6 +168,7 @@
 
 		coarse = nextCoarseState;
 		fine = nextFineState;
+		busySlots = nextBusy;
 	}
 
 	/**
@@ -216,6 +235,63 @@
 		} finally {
 			busy = false;
 		}
+	}
+
+	async function linkCalendar() {
+		if (!calendarURL.trim()) return;
+		busy = true;
+		error = '';
+		calendarNote = '';
+
+		try {
+			// Joining first, because connecting a calendar is a response and
+			// needs an identity to attach to.
+			if (!token) {
+				if (!name.trim()) {
+					error = 'A name is needed first.';
+					return;
+				}
+				const joined = await joinEvent(slug, { name: name.trim(), timezone });
+				token = joined.token;
+				saveToken(slug, joined.token);
+			}
+
+			const res = await connectICS(slug, token, calendarURL.trim());
+			calendarNote =
+				res.slots_blocked === 0
+					? 'Read your calendar — nothing in it clashes with these times.'
+					: `Read your calendar — ${res.slots_blocked} time${res.slots_blocked === 1 ? '' : 's'} you are already booked have been ruled out. You can override any of them.`;
+			calendarOpen = false;
+
+			event = await getEvent(slug, token);
+			hydrate(event);
+			stage = 'coarse';
+		} catch (e) {
+			error = e instanceof Error ? e.message : String(e);
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function unlinkCalendar() {
+		if (!token) return;
+		busy = true;
+		error = '';
+		try {
+			await disconnectCalendar(slug, token);
+			calendarNote = '';
+			event = await getEvent(slug, token);
+			hydrate(event);
+		} catch (e) {
+			error = e instanceof Error ? e.message : String(e);
+		} finally {
+			busy = false;
+		}
+	}
+
+	/** How many of a cell's slots the calendar has already ruled out. */
+	function busyCount(instants: Date[]): number {
+		return instants.filter((i) => busySlots[slotKey(i)]).length;
 	}
 
 	function startAnswering() {
@@ -288,7 +364,7 @@
 
 		<!-- Stage: name -->
 		{#if stage === 'name'}
-			<div class="border-line rounded-2xl border bg-white p-4">
+			<div class="border-line mb-3.5 rounded-2xl border bg-white p-4">
 				<h2 class="mb-1 text-[15px] font-semibold">Who's answering?</h2>
 				<p class="text-muted m-0 text-[13.5px]">
 					No account, no email. Your answer stays on this device so you can edit it later.
@@ -311,6 +387,57 @@
 
 			<!-- Stage: coarse -->
 		{:else if stage === 'coarse'}
+			{#if calendarSource === 'none'}
+				<div class="border-line mb-3.5 rounded-2xl border bg-white p-4">
+					<h2 class="mb-1 text-[15px] font-semibold">Skip the typing</h2>
+					<p class="text-muted m-0 text-[13.5px]">
+						Paste a calendar link and the times you are already booked get ruled out for you.
+						Overlap reads only busy and free — never event titles or details.
+					</p>
+
+					{#if calendarOpen}
+						<input
+							class="border-line mt-3 w-full rounded-xl border p-3 text-base"
+							placeholder="webcal:// or https:// …ics"
+							bind:value={calendarURL}
+							inputmode="url"
+							autocomplete="off"
+						/>
+						<p class="text-muted mt-1 text-[11.5px]">
+							Apple Calendar and Outlook both have a "public"or secret iCal address in their
+							share menu. Google's is under Settings → Integrate calendar.
+						</p>
+						<button
+							class="bg-ink mt-2 w-full rounded-xl p-3 text-[14px] font-semibold text-white disabled:opacity-60"
+							onclick={linkCalendar}
+							disabled={busy || !calendarURL.trim()}
+						>
+							{busy ? 'Reading…' : 'Use this calendar'}
+						</button>
+					{:else}
+						<button
+							class="border-line mt-3 w-full rounded-xl border border-dashed p-3 text-[14px] font-medium text-muted"
+							onclick={() => (calendarOpen = true)}
+						>
+							Connect a calendar
+						</button>
+					{/if}
+				</div>
+			{:else}
+				<div class="border-yes bg-yes-bg mb-3.5 rounded-2xl border p-4">
+					<p class="text-yes m-0 text-[13.5px]">
+						{calendarNote || 'Your calendar is connected. Busy times are ruled out and marked below.'}
+					</p>
+					<button
+						class="text-yes mt-2 text-[13px] underline underline-offset-2"
+						onclick={unlinkCalendar}
+						disabled={busy}
+					>
+						Disconnect and clear
+					</button>
+				</div>
+			{/if}
+
 			<div class="border-line mb-3.5 rounded-2xl border bg-white p-4">
 				<h2 class="mb-1 text-[15px] font-semibold">Tap whatever works</h2>
 				<p class="text-muted m-0 text-[13.5px]">
@@ -339,6 +466,8 @@
 					{#each activeBlocks as b (b)}
 						{@const slotsHere = day.blocks[b]}
 						{@const tier = coarse[cellKey({ date: day.date, block: b })]}
+						{@const nBusy = busyCount(slotsHere)}
+						{@const allBusy = slotsHere.length > 0 && nBusy === slotsHere.length}
 						<button
 							class="flex min-h-[52px] items-center justify-center rounded-[10px] border p-0.5 text-[11.5px] font-semibold transition-colors
 								{slotsHere.length === 0
@@ -347,13 +476,17 @@
 									? 'border-yes bg-yes-bg text-yes'
 									: tier === 'if_needed'
 										? 'border-maybe bg-maybe-bg text-maybe'
-										: 'border-line bg-white text-[#c4bfb7]'}"
+										: allBusy
+											? 'busy-hatch border-line border-dashed text-[#a5a099]'
+											: 'border-line bg-white text-[#c4bfb7]'}"
 							disabled={slotsHere.length === 0}
-							aria-label="{day.weekday} {day.dayLabel} {BLOCK_LABELS[b]}"
+							aria-label="{day.weekday} {day.dayLabel} {BLOCK_LABELS[b]}{allBusy
+								? ' — busy in your calendar'
+								: ''}"
 							aria-pressed={!!tier}
 							onclick={() => tapCell(day.date, b)}
 						>
-							{tier ? TIER_LABELS[tier] : ''}
+							{tier ? TIER_LABELS[tier] : allBusy ? 'Busy' : nBusy > 0 ? `${nBusy} busy` : ''}
 						</button>
 					{/each}
 				</div>
@@ -362,6 +495,13 @@
 			<div class="text-muted mx-0.5 mt-2.5 flex flex-wrap gap-3 text-[11.5px]">
 				<span><i class="border-yes bg-yes-bg mr-1.5 inline-block size-2.5 rounded-[3px] border align-[-1px]"></i>Works</span>
 				<span><i class="border-maybe bg-maybe-bg mr-1.5 inline-block size-2.5 rounded-[3px] border align-[-1px]"></i>If needed</span>
+				{#if calendarSource !== 'none'}
+					<span
+						><i
+							class="busy-hatch border-line mr-1.5 inline-block size-2.5 rounded-[3px] border border-dashed align-[-1px]"
+						></i>Busy in your calendar</span
+					>
+				{/if}
 			</div>
 
 			<!-- Stage: fine -->
@@ -496,3 +636,18 @@
 		</div>
 	</div>
 {/if}
+
+<style>
+	/* Calendar-derived cells are hatched rather than merely greyed, so an
+	   inferred state never looks like one the person chose. Tapping still
+	   works: this is a proposal to correct, not a lock. */
+	:global(.busy-hatch) {
+		background-image: repeating-linear-gradient(
+			45deg,
+			#f2f0ed,
+			#f2f0ed 4px,
+			#e8e5e0 4px,
+			#e8e5e0 8px
+		);
+	}
+</style>

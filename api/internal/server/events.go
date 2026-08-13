@@ -94,13 +94,17 @@ type participantView struct {
 }
 
 type selfView struct {
-	ParticipantID string         `json:"participant_id"`
-	Name          string         `json:"name"`
-	Timezone      string         `json:"timezone"`
-	Role          string         `json:"role"`
-	IsOrganizer   bool           `json:"is_organizer"`
-	Responded     bool           `json:"responded"`
-	Responses     []responseView `json:"responses"`
+	ParticipantID string `json:"participant_id"`
+	Name          string `json:"name"`
+	Timezone      string `json:"timezone"`
+	Role          string `json:"role"`
+	IsOrganizer   bool   `json:"is_organizer"`
+	Responded     bool   `json:"responded"`
+
+	// CalendarSource lets the UI show that some tiers were inferred rather
+	// than stated, and offer to disconnect.
+	CalendarSource string         `json:"calendar_source"`
+	Responses      []responseView `json:"responses"`
 }
 
 type responseView struct {
@@ -212,13 +216,14 @@ func (s *Server) handleGetEvent(w http.ResponseWriter, r *http.Request) {
 
 	if me, ok := s.optionalParticipant(r, ev.ID); ok {
 		self := selfView{
-			ParticipantID: me.ID,
-			Name:          me.DisplayName,
-			Timezone:      me.TZ,
-			Role:          me.Role,
-			IsOrganizer:   me.IsOrganizer,
-			Responded:     me.Responded(),
-			Responses:     []responseView{},
+			ParticipantID:  me.ID,
+			Name:           me.DisplayName,
+			Timezone:       me.TZ,
+			Role:           me.Role,
+			IsOrganizer:    me.IsOrganizer,
+			Responded:      me.Responded(),
+			CalendarSource: me.CalendarSource,
+			Responses:      []responseView{},
 		}
 		rs, err := s.store.ResponsesForParticipant(r.Context(), me.ID)
 		if err != nil {

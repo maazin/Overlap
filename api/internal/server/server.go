@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/maazin/Overlap/api/internal/fetchguard"
 	"github.com/maazin/Overlap/api/internal/sse"
 	"github.com/maazin/Overlap/api/internal/store"
 )
@@ -19,6 +20,10 @@ type Server struct {
 	log    *slog.Logger
 	store  *store.Store
 	broker *sse.Broker
+
+	// fetcher retrieves calendar feeds. It is the only thing in the process
+	// that dials a URL a stranger supplied, and it is hardened accordingly.
+	fetcher *fetchguard.Fetcher
 }
 
 // New returns a Server. It does no IO, so it cannot fail.
@@ -26,7 +31,23 @@ type Server struct {
 // The broker is per-process state rather than a package global, so two servers
 // in one test binary do not broadcast into each other.
 func New(cfg Config, log *slog.Logger, st *store.Store) *Server {
-	return &Server{cfg: cfg, log: log, store: st, broker: sse.NewBroker()}
+	fetcher := fetchguard.New()
+
+	// Two independent conditions, both required. The flag alone is not enough,
+	// because a stray environment variable in production would otherwise turn
+	// the API into an open proxy for anything on its private network.
+	if cfg.Env == "development" && cfg.AllowPrivateCalendarHosts {
+		log.Warn("calendar fetches may reach private addresses; development only")
+		fetcher.AllowPrivateForDevelopment()
+	}
+
+	return &Server{
+		cfg:     cfg,
+		log:     log,
+		store:   st,
+		broker:  sse.NewBroker(),
+		fetcher: fetcher,
+	}
 }
 
 // Routes builds the handler tree. Middleware is applied outermost-first:
@@ -52,6 +73,11 @@ func (s *Server) Routes() http.Handler {
 		s.requireParticipant(http.HandlerFunc(s.handleDecide)))
 	mux.Handle("POST /api/events/{slug}/reopen",
 		s.requireParticipant(http.HandlerFunc(s.handleReopen)))
+
+	mux.Handle("POST /api/events/{slug}/calendar/ics",
+		s.requireParticipant(http.HandlerFunc(s.handleConnectICS)))
+	mux.Handle("DELETE /api/events/{slug}/calendar",
+		s.requireParticipant(http.HandlerFunc(s.handleDisconnectCalendar)))
 
 	return s.recoverPanic(s.logRequests(s.cors(mux)))
 }

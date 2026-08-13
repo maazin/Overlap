@@ -8,6 +8,15 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type BusyBlock struct {
+	ID            pgtype.UUID
+	ParticipantID pgtype.UUID
+	StartTs       pgtype.Timestamptz
+	EndTs         pgtype.Timestamptz
+	Source        string
+	FetchedAt     pgtype.Timestamptz
+}
+
 type Event struct {
 	ID               pgtype.UUID
 	Slug             string
@@ -36,6 +45,7 @@ type Participant struct {
 	IsOrganizer    bool
 	RespondedAt    pgtype.Timestamptz
 	CreatedAt      pgtype.Timestamptz
+	CalendarUrl    pgtype.Text
 }
 
 type Response struct {

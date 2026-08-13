@@ -17,6 +17,8 @@ api/                 Go 1.26 HTTP API — deploys to Fly.io
   internal/results/  binds stored rows to solver inputs; owns what silence means
   internal/ics/      pure RFC 5545 rendering for the decided-event download
   internal/sse/      in-process pub/sub broker and the event-stream encoding
+  internal/fetchguard/ SSRF-hardened fetching of caller-supplied URLs
+  internal/icsparse/ pure iCalendar -> busy intervals, including recurrence
   internal/store/    the only package that talks to Postgres
   internal/dbgen/    sqlc-generated, do not edit
   internal/tz/       IANA zone resolution for untrusted names
@@ -76,7 +78,27 @@ POST /api/events/{slug}/decide          organizer locks a slot
 POST /api/events/{slug}/reopen          organizer unlocks it again
 GET  /api/events/{slug}/decided.ics     calendar download for the locked slot
 GET  /api/events/{slug}/stream          SSE: response_submitted, decided, ping
+POST /api/events/{slug}/calendar/ics    subscribe to a calendar feed
+DELETE /api/events/{slug}/calendar      drop imported blocks
 ```
+
+**Calendar import reads free/busy only.** `internal/icsparse` extracts start and
+end times and nothing else: SUMMARY, DESCRIPTION, LOCATION and ATTENDEE are
+never read, never stored and never logged. `busy_blocks` has no column they
+could go in, which is a cheaper guarantee than remembering not to write them.
+
+A stated tier always beats an inferred one, in both directions: connecting a
+calendar never overwrites an answer somebody typed, and submitting the grid
+never deletes the blocks the calendar contributed. Imported tiers carry
+`source = 'calendar'` and render hatched, so an inference never looks like a
+choice.
+
+**Fetching a URL a stranger supplied is the dangerous part**, not the parsing.
+`internal/fetchguard` resolves the host itself, refuses loopback, private,
+link-local, carrier-NAT and cloud-metadata addresses, re-checks every redirect,
+and dials the address it checked rather than the name -- resolving twice is the
+DNS-rebinding hole. `ALLOW_PRIVATE_CALENDAR_HOSTS=true` relaxes this for local
+development and is ignored unless `APP_ENV=development`.
 
 **Dominance.** `/solve` returns a verdict naming the situation rather than
 leaving the client to infer it: `decidable`, `waiting_on_required`,

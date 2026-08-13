@@ -218,3 +218,42 @@ func TestResponsesAreOrdered(t *testing.T) {
 		}
 	}
 }
+
+// TestSubmittingDoesNotWipeCalendarRows is the interaction between the two
+// write paths. A response replaces the whole set so that a slot can be
+// withdrawn, which means without care it also deletes everything the calendar
+// contributed -- and times somebody is genuinely booked would come back as
+// available.
+func TestSubmittingDoesNotWipeCalendarRows(t *testing.T) {
+	starts := dayNY()
+
+	prior := []store.Response{
+		{SlotStart: starts[3], Tier: solver.TierNo, Source: store.SourceCalendar},
+		{SlotStart: starts[4], Tier: solver.TierNo, Source: store.SourceCalendar},
+	}
+	stated := []store.Response{
+		{SlotStart: starts[0], Tier: solver.TierOK, Source: store.SourceCoarse},
+		// The person says this one works despite the calendar.
+		{SlotStart: starts[3], Tier: solver.TierPreferred, Source: store.SourceManual},
+	}
+
+	got := mergeCalendarRows(stated, prior)
+	m := byStart(got)
+
+	if len(got) != 3 {
+		t.Fatalf("got %d rows, want 3: %+v", len(got), got)
+	}
+	// Stated beats inferred.
+	if r := m[starts[3]]; r.Tier != solver.TierPreferred || r.Source != store.SourceManual {
+		t.Errorf("stated slot = %v/%q, want preferred/manual", r.Tier, r.Source)
+	}
+	// Untouched calendar row survives.
+	if r := m[starts[4]]; r.Tier != solver.TierNo || r.Source != store.SourceCalendar {
+		t.Errorf("untouched calendar slot = %v/%q, want no/calendar", r.Tier, r.Source)
+	}
+	for i := 1; i < len(got); i++ {
+		if !got[i-1].SlotStart.Before(got[i].SlotStart) {
+			t.Fatalf("merged rows are not ordered: %+v", got)
+		}
+	}
+}

@@ -16,6 +16,10 @@ type Config struct {
 	DatabaseURL    string
 	AllowedOrigins []string
 
+	// AllowPrivateCalendarHosts lets calendar import reach loopback and private
+	// addresses. Honoured only when Env is development; see server.New.
+	AllowPrivateCalendarHosts bool
+
 	// WebURL is where the SvelteKit app lives. The API needs it to write a
 	// link back to the event into the downloaded calendar entry.
 	WebURL string
@@ -27,12 +31,14 @@ type Config struct {
 // that make `go run ./cmd/api` work with no setup.
 func ConfigFromEnv() Config {
 	return Config{
-		Addr:            ":" + env("PORT", "8080"),
-		Env:             env("APP_ENV", "development"),
-		DatabaseURL:     os.Getenv("DATABASE_URL"),
-		AllowedOrigins:  splitList(env("ALLOWED_ORIGINS", "http://localhost:5173")),
-		WebURL:          strings.TrimRight(env("WEB_URL", "http://localhost:5173"), "/"),
-		ShutdownTimeout: 15 * time.Second,
+		Addr:           ":" + env("PORT", "8080"),
+		Env:            env("APP_ENV", "development"),
+		DatabaseURL:    os.Getenv("DATABASE_URL"),
+		AllowedOrigins: splitList(env("ALLOWED_ORIGINS", "http://localhost:5173")),
+		WebURL:         strings.TrimRight(env("WEB_URL", "http://localhost:5173"), "/"),
+
+		AllowPrivateCalendarHosts: env("ALLOW_PRIVATE_CALENDAR_HOSTS", "") == "true",
+		ShutdownTimeout:           15 * time.Second,
 	}
 }
 

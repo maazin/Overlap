@@ -17,7 +17,7 @@ insert into participants (
 ) values (
     $1, $2, $3, $4, $5, $6
 )
-returning id, event_id, token_hash, display_name, tz, role, email, calendar_source, is_organizer, responded_at, created_at
+returning id, event_id, token_hash, display_name, tz, role, email, calendar_source, is_organizer, responded_at, created_at, calendar_url
 `
 
 type CreateParticipantParams struct {
@@ -51,12 +51,22 @@ func (q *Queries) CreateParticipant(ctx context.Context, arg CreateParticipantPa
 		&i.IsOrganizer,
 		&i.RespondedAt,
 		&i.CreatedAt,
+		&i.CalendarUrl,
 	)
 	return i, err
 }
 
+const deleteBusyBlocks = `-- name: DeleteBusyBlocks :exec
+delete from busy_blocks where participant_id = $1
+`
+
+func (q *Queries) DeleteBusyBlocks(ctx context.Context, participantID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteBusyBlocks, participantID)
+	return err
+}
+
 const getParticipantByToken = `-- name: GetParticipantByToken :one
-select id, event_id, token_hash, display_name, tz, role, email, calendar_source, is_organizer, responded_at, created_at from participants where event_id = $1 and token_hash = $2
+select id, event_id, token_hash, display_name, tz, role, email, calendar_source, is_organizer, responded_at, created_at, calendar_url from participants where event_id = $1 and token_hash = $2
 `
 
 type GetParticipantByTokenParams struct {
@@ -79,12 +89,66 @@ func (q *Queries) GetParticipantByToken(ctx context.Context, arg GetParticipantB
 		&i.IsOrganizer,
 		&i.RespondedAt,
 		&i.CreatedAt,
+		&i.CalendarUrl,
 	)
 	return i, err
 }
 
+const insertBusyBlocks = `-- name: InsertBusyBlocks :exec
+insert into busy_blocks (participant_id, start_ts, end_ts, source)
+select $1, unnest($2::timestamptz[]), unnest($3::timestamptz[]), $4
+`
+
+type InsertBusyBlocksParams struct {
+	ParticipantID pgtype.UUID
+	Column2       []pgtype.Timestamptz
+	Column3       []pgtype.Timestamptz
+	Source        string
+}
+
+func (q *Queries) InsertBusyBlocks(ctx context.Context, arg InsertBusyBlocksParams) error {
+	_, err := q.db.Exec(ctx, insertBusyBlocks,
+		arg.ParticipantID,
+		arg.Column2,
+		arg.Column3,
+		arg.Source,
+	)
+	return err
+}
+
+const listBusyBlocks = `-- name: ListBusyBlocks :many
+select id, participant_id, start_ts, end_ts, source, fetched_at from busy_blocks where participant_id = $1 order by start_ts
+`
+
+func (q *Queries) ListBusyBlocks(ctx context.Context, participantID pgtype.UUID) ([]BusyBlock, error) {
+	rows, err := q.db.Query(ctx, listBusyBlocks, participantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []BusyBlock{}
+	for rows.Next() {
+		var i BusyBlock
+		if err := rows.Scan(
+			&i.ID,
+			&i.ParticipantID,
+			&i.StartTs,
+			&i.EndTs,
+			&i.Source,
+			&i.FetchedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listParticipants = `-- name: ListParticipants :many
-select id, event_id, token_hash, display_name, tz, role, email, calendar_source, is_organizer, responded_at, created_at from participants where event_id = $1 order by created_at, id
+select id, event_id, token_hash, display_name, tz, role, email, calendar_source, is_organizer, responded_at, created_at, calendar_url from participants where event_id = $1 order by created_at, id
 `
 
 func (q *Queries) ListParticipants(ctx context.Context, eventID pgtype.UUID) ([]Participant, error) {
@@ -108,6 +172,7 @@ func (q *Queries) ListParticipants(ctx context.Context, eventID pgtype.UUID) ([]
 			&i.IsOrganizer,
 			&i.RespondedAt,
 			&i.CreatedAt,
+			&i.CalendarUrl,
 		); err != nil {
 			return nil, err
 		}
@@ -125,5 +190,22 @@ update participants set responded_at = now() where id = $1
 
 func (q *Queries) MarkParticipantResponded(ctx context.Context, id pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, markParticipantResponded, id)
+	return err
+}
+
+const setCalendarSource = `-- name: SetCalendarSource :exec
+update participants
+set calendar_source = $2, calendar_url = $3
+where id = $1
+`
+
+type SetCalendarSourceParams struct {
+	ID             pgtype.UUID
+	CalendarSource string
+	CalendarUrl    pgtype.Text
+}
+
+func (q *Queries) SetCalendarSource(ctx context.Context, arg SetCalendarSourceParams) error {
+	_, err := q.db.Exec(ctx, setCalendarSource, arg.ID, arg.CalendarSource, arg.CalendarUrl)
 	return err
 }

@@ -180,6 +180,22 @@ func (s *Server) handlePutResponses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Calendar-derived rows are carried across a submission.
+	//
+	// A response replaces the whole set, which is what lets somebody withdraw a
+	// slot they previously offered. Without this, submitting the grid would
+	// also silently delete everything the calendar contributed, and the times
+	// somebody is genuinely booked would quietly come back as available.
+	// Anything the person stated still wins: only slots the submission does not
+	// mention are filled from the calendar.
+	prior, err := s.store.ResponsesForParticipant(r.Context(), a.participant.ID)
+	if err != nil {
+		s.log.ErrorContext(r.Context(), "load prior responses", "err", err)
+		s.writeError(w, r, http.StatusInternalServerError, "could not save responses")
+		return
+	}
+	rs = mergeCalendarRows(rs, prior)
+
 	if err := s.store.SaveResponses(r.Context(), a.participant.ID, rs); err != nil {
 		s.log.ErrorContext(r.Context(), "save responses", "err", err)
 		s.writeError(w, r, http.StatusInternalServerError, "could not save responses")
@@ -258,6 +274,25 @@ func buildResponses(starts []time.Time, loc *time.Location, req putResponsesRequ
 	sort.Slice(out, func(i, j int) bool { return out[i].SlotStart.Before(out[j].SlotStart) })
 
 	return out, nil
+}
+
+// mergeCalendarRows adds back calendar-sourced tiers for any slot the new
+// submission is silent about, preserving order by slot start.
+func mergeCalendarRows(stated, prior []store.Response) []store.Response {
+	seen := make(map[int64]bool, len(stated))
+	for _, r := range stated {
+		seen[r.SlotStart.UnixNano()] = true
+	}
+
+	out := stated
+	for _, r := range prior {
+		if r.Source == store.SourceCalendar && !seen[r.SlotStart.UnixNano()] {
+			out = append(out, r)
+		}
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].SlotStart.Before(out[j].SlotStart) })
+	return out
 }
 
 // --- tier vocabulary ---------------------------------------------------------

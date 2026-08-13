@@ -34,6 +34,7 @@ export type SelfView = {
 	role: Role;
 	is_organizer: boolean;
 	responded: boolean;
+	calendar_source?: string;
 	responses: ResponseView[];
 };
 
@@ -209,6 +210,26 @@ export const decide = (slug: string, token: string, slotStart: string, force = f
 export const reopen = (slug: string, token: string) =>
 	request<{ slug: string; status: string }>(`/api/events/${encodeURIComponent(slug)}/reopen`, {
 		method: 'POST',
+		headers: { 'X-Participant-Token': token }
+	});
+
+export type ConnectICSResult = {
+	source: 'ics';
+	busy_blocks: number;
+	slots_blocked: number;
+	fetched_at: string;
+};
+
+export const connectICS = (slug: string, token: string, url: string) =>
+	request<ConnectICSResult>(`/api/events/${encodeURIComponent(slug)}/calendar/ics`, {
+		method: 'POST',
+		headers: { 'X-Participant-Token': token },
+		body: JSON.stringify({ url })
+	});
+
+export const disconnectCalendar = (slug: string, token: string) =>
+	request<{ source: string }>(`/api/events/${encodeURIComponent(slug)}/calendar`, {
+		method: 'DELETE',
 		headers: { 'X-Participant-Token': token }
 	});
 
