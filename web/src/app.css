@@ -1,39 +1,211 @@
 @import 'tailwindcss';
 
-/* The palette from the input prototype, as design tokens. Tailwind v4 reads
-   @theme and generates utilities from it, so `bg-card` and `text-muted` work
-   everywhere without a config file. */
+/*
+  Overlap design tokens.
+
+  Two rules shape everything below.
+
+  Colours are semantic, never literal. Nothing in a component says "grey" or
+  "green"; it says "muted" or "positive". Every token has a light and a dark
+  value, so a component written once is correct in both appearances.
+
+  Sizes are in rem, never px. A px type scale ignores the reader's browser text
+  size setting, which is the main accessibility control people actually use.
+  The root stays at the browser default of 16px, so 1.0625rem is the 17pt
+  mobile body size the guidelines recommend.
+*/
+
 @theme {
-  --color-bg: #faf9f7;
-  --color-card: #ffffff;
-  --color-ink: #1b1a17;
-  --color-muted: #6f6b63;
-  --color-line: #e6e2dc;
+  /* Type. Named for role so a component never picks a number. */
+  --text-display: 2rem;      /* 32px */
+  --text-title: 1.5rem;      /* 24px */
+  --text-heading: 1.1875rem; /* 19px */
+  --text-body: 1.0625rem;    /* 17px, the mobile default */
+  --text-callout: 1rem;      /* 16px */
+  --text-subhead: 0.9375rem; /* 15px */
+  --text-footnote: 0.8125rem;/* 13px */
+  --text-caption: 0.75rem;   /* 12px, the floor for anything readable */
 
-  --color-yes: #1a7f5a;
-  --color-yes-bg: #dcf2e8;
-  --color-maybe: #a86a10;
-  --color-maybe-bg: #fbeed5;
-  --color-bad: #b4472f;
+  --text-display--line-height: 1.1;
+  --text-title--line-height: 1.2;
+  --text-heading--line-height: 1.3;
+  --text-body--line-height: 1.5;
+  --text-callout--line-height: 1.45;
+  --text-subhead--line-height: 1.4;
+  --text-footnote--line-height: 1.4;
+  --text-caption--line-height: 1.35;
 
-  --font-sans: ui-sans-serif, -apple-system, 'Segoe UI', Inter, Roboto, sans-serif;
+  --font-sans: system-ui, -apple-system, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+  --font-serif: ui-serif, 'New York', Georgia, 'Times New Roman', serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+
+  /* The smallest a control may be before it is hard to hit accurately. */
+  --spacing-touch: 2.75rem; /* 44px */
+
+  /* Crisp corners. A large radius reads soft and generic; 3px keeps the edge
+     sharp enough to look drawn rather than rounded off. */
+  --radius-card: 0.1875rem;  /* 3px */
+  --radius-control: 0.1875rem;
 }
 
-html,
-body {
-  margin: 0;
-  padding: 0;
+/*
+  Light appearance.
+
+  Warm neutrals rather than pure white and pure black. A bone canvas under an
+  ink foreground reads as printed paper, and it stays comfortable in bright
+  light where a pure white screen glares.
+*/
+:root {
+  /* No pure white anywhere. Paper has a colour, and a warm off-white sits
+     easier under bright light than #fff does. */
+  --canvas: #f4f1ec;
+  --surface: #fbf9f5;
+  --raised: #edeae3;
+
+  --ink: #1b1a17;
+  --ink-muted: #5f5a53;
+  --ink-faint: #8a837a;
+  --on-accent: #f6f4f0;
+
+  --hairline: #e5e0d8;
+  --hairline-strong: #d5cec3;
+
+  /* Deep, low-chroma tones. Tinted fills are avoided entirely: a pale wash of
+     a hue is the pastel look, so state is carried by a deep ground with light
+     text, or by an outline with coloured text on the ordinary surface. */
+  --positive: #2c5243;
+  --positive-deep: #24443a;
+  --positive-line: #9db3a8;
+
+  --caution: #75591b;
+  --caution-line: #bfa876;
+
+  --critical: #83352f;
+  --critical-line: #bf938c;
+
+  --accent: #1b1a17;
+  --brass: #7a6535;
+
+  --shadow-card: 0 1px 2px rgb(27 26 23 / 0.04), 0 8px 24px rgb(27 26 23 / 0.04);
+  --shadow-raised: 0 1px 2px rgb(27 26 23 / 0.06), 0 12px 32px rgb(27 26 23 / 0.08);
 }
 
-body {
-  background: var(--color-bg);
-  color: var(--color-ink);
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
+/*
+  Dark appearance.
+
+  Surfaces get lighter as they come forward, which is how depth reads without
+  drop shadows. Accent colours are lifted and desaturated so they clear 4.5:1
+  against a dark ground; the light values would fail there.
+*/
+@media (prefers-color-scheme: dark) {
+  :root {
+    --canvas: #121110;
+    --surface: #1b1a18;
+    --raised: #232120;
+
+    --ink: #f4f1eb;
+    --ink-muted: #a9a29a;
+    --ink-faint: #7c766e;
+    --on-accent: #121110;
+    --on-deep: #e8efea;
+
+    --hairline: #302d29;
+    --hairline-strong: #423e38;
+
+    --positive: #8fbfa8;
+    --positive-deep: #2b4438;
+    --positive-line: #3f5a4c;
+
+    --caution: #d2ae68;
+    --caution-line: #5d4c2c;
+
+    --critical: #e0958d;
+    --critical-line: #603f3a;
+
+    --accent: #f4f1eb;
+    --brass: #c7ac74;
+
+    --shadow-card: none;
+    --shadow-raised: none;
+  }
 }
 
-/* Kills the grey flash when a thumb lands on a tappable cell. The response
-   grid is nothing but tap targets, so the default highlight reads as lag. */
-* {
-  -webkit-tap-highlight-color: transparent;
+@layer base {
+  html {
+    background: var(--canvas);
+    /* Honours the browser text size setting rather than overriding it. */
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--canvas);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Removes the grey flash on tap. The response grid is all tap targets, and
+     the default highlight reads as lag. */
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* A visible focus ring is the only way a keyboard user can tell where they
+     are. It is drawn outside the element so it never shifts layout. */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 0.5rem;
+  }
+
+  ::selection {
+    background: var(--positive-surface);
+    color: var(--ink);
+  }
+
+  /* Respects a reduced-motion preference across every transition at once,
+     rather than each component remembering to ask. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer utilities {
+  .u-canvas { background: var(--canvas); }
+  .u-surface { background: var(--surface); }
+  .u-raised { background: var(--raised); }
+
+  .u-ink { color: var(--ink); }
+  .u-muted { color: var(--ink-muted); }
+  .u-faint { color: var(--ink-faint); }
+
+  .u-hairline { border-color: var(--hairline); }
+
+  /* Content column. 30rem keeps a comfortable measure for reading and puts
+     every control within thumb reach on a phone. */
+  .u-column {
+    width: 100%;
+    max-width: 30rem;
+    margin-inline: auto;
+    padding-inline: 1.25rem;
+  }
+
+  /* Numerals that do not jump width as they change, for clocks and counts. */
+  .u-tnum { font-variant-numeric: tabular-nums; }
+
+  .u-serif {
+    font-family: var(--font-serif);
+    letter-spacing: -0.01em;
+  }
 }

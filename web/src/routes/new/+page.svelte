@@ -3,8 +3,11 @@
 	import { browser } from '$app/environment';
 	import { createEvent, APIError } from '$lib/api';
 	import { detectTimezone, allTimezones, saveToken } from '$lib/identity';
+	import Button from '$lib/ui/Button.svelte';
+	import Card from '$lib/ui/Card.svelte';
+	import Field from '$lib/ui/Field.svelte';
+	import PageHeader from '$lib/ui/PageHeader.svelte';
 
-	/** Today in the given zone, as YYYY-MM-DD. */
 	function todayIn(tz: string): string {
 		return new Intl.DateTimeFormat('en-CA', {
 			timeZone: tz,
@@ -49,8 +52,8 @@
 				organizer_name: organizerName.trim() || undefined
 			});
 
-			// Stored before navigating so the organizer lands on the response page
-			// already recognised, rather than being asked for their name again.
+			// Saved before navigating so the organizer lands already recognised
+			// rather than being asked for their name a second time.
 			if (res.organizer_token) saveToken(res.slug, res.organizer_token);
 			await goto(`/e/${res.slug}`);
 		} catch (err) {
@@ -61,117 +64,85 @@
 </script>
 
 <svelte:head>
-	<title>New event — Overlap</title>
+	<title>New event</title>
 </svelte:head>
 
-<div class="mx-auto max-w-[480px] px-4 pt-5 pb-16">
-	<header class="mb-4">
-		<p class="text-muted text-xs font-semibold tracking-[0.09em] uppercase">Overlap</p>
-		<h1 class="mt-1.5 mb-1 text-[23px] leading-tight font-semibold tracking-tight">
-			What are you scheduling?
-		</h1>
-		<p class="text-muted m-0 text-sm">You'll get a link to paste into the group chat.</p>
-	</header>
+<div class="u-column pt-8 pb-16">
+	<PageHeader title="What are you scheduling?">
+		You get a link to paste into the group chat.
+	</PageHeader>
 
 	{#if error}
-		<p class="text-bad border-bad/30 mb-3 rounded-xl border bg-white p-3 text-[13px]">{error}</p>
+		<div class="mb-5">
+			<Card tone="critical"><p class="m-0 text-subhead">{error}</p></Card>
+		</div>
 	{/if}
 
-	<form class="border-line rounded-2xl border bg-white p-4" onsubmit={submit}>
-		<label class="mb-3 block">
-			<span class="text-muted mb-1 block text-[12.5px] font-semibold">Title</span>
-			<input
-				class="border-line w-full rounded-xl border p-3 text-base"
-				bind:value={title}
-				placeholder="Team sync"
-				required
-			/>
-		</label>
+	<form onsubmit={submit}>
+		<Card>
+			<Field label="Title" bind:value={title} placeholder="Team sync" required />
 
-		<label class="mb-3 block">
-			<span class="text-muted mb-1 block text-[12.5px] font-semibold">Your name</span>
-			<input
-				class="border-line w-full rounded-xl border p-3 text-base"
+			<Field
+				label="Your name"
 				bind:value={organizerName}
-				placeholder="Optional — adds you as a required attendee"
+				placeholder="Optional"
 				autocomplete="name"
+				hint="Adding your name joins you as a required attendee."
 			/>
-		</label>
 
-		<div class="mb-3 grid grid-cols-2 gap-2">
-			<label class="block">
-				<span class="text-muted mb-1 block text-[12.5px] font-semibold">From</span>
-				<input
-					class="border-line w-full rounded-xl border p-3 text-base"
-					type="date"
-					bind:value={windowStart}
-					required
-				/>
-			</label>
-			<label class="block">
-				<span class="text-muted mb-1 block text-[12.5px] font-semibold">To</span>
-				<input
-					class="border-line w-full rounded-xl border p-3 text-base"
-					type="date"
-					bind:value={windowEnd}
-					required
-				/>
-			</label>
-		</div>
+			<div class="grid grid-cols-2 gap-3">
+				<Field label="From" bind:value={windowStart} type="date" required />
+				<Field label="To" bind:value={windowEnd} type="date" required />
+			</div>
 
-		<div class="mb-3 grid grid-cols-2 gap-2">
-			<label class="block">
-				<span class="text-muted mb-1 block text-[12.5px] font-semibold">Day starts</span>
-				<input
-					class="border-line w-full rounded-xl border p-3 text-base"
-					type="time"
-					bind:value={dayStart}
-					required
-				/>
-			</label>
-			<label class="block">
-				<span class="text-muted mb-1 block text-[12.5px] font-semibold">Day ends</span>
-				<input
-					class="border-line w-full rounded-xl border p-3 text-base"
-					type="time"
-					bind:value={dayEnd}
-					required
-				/>
-			</label>
-		</div>
+			<div class="grid grid-cols-2 gap-3">
+				<Field label="Day starts" bind:value={dayStart} type="time" required />
+				<Field label="Day ends" bind:value={dayEnd} type="time" required />
+			</div>
 
-		<label class="mb-3 block">
-			<span class="text-muted mb-1 block text-[12.5px] font-semibold">Meeting length</span>
-			<select
-				class="border-line w-full rounded-xl border bg-white p-3 text-base"
-				bind:value={slotMinutes}
-			>
-				{#each [15, 30, 45, 60, 90, 120] as m (m)}
-					<option value={m}>{m} minutes</option>
-				{/each}
-			</select>
-		</label>
+			<div class="mb-4">
+				<label class="mb-1.5 block text-footnote font-semibold u-muted" for="len">
+					Meeting length
+				</label>
+				<select id="len" class="picker" bind:value={slotMinutes}>
+					{#each [15, 30, 45, 60, 90, 120] as m (m)}
+						<option value={m}>{m} minutes</option>
+					{/each}
+				</select>
+			</div>
 
-		<label class="mb-4 block">
-			<span class="text-muted mb-1 block text-[12.5px] font-semibold">Your timezone</span>
-			<select
-				class="border-line w-full rounded-xl border bg-white p-3 text-base"
-				bind:value={timezone}
-			>
-				{#each allTimezones() as z (z)}
-					<option value={z}>{z.replace(/_/g, ' ')}</option>
-				{/each}
-			</select>
-			<span class="text-muted mt-1 block text-[11.5px]">
-				The window above is read in this zone. Everyone else sees their own.
-			</span>
-		</label>
+			<div class="mb-5">
+				<label class="mb-1.5 block text-footnote font-semibold u-muted" for="tz">
+					Your timezone
+				</label>
+				<select id="tz" class="picker" bind:value={timezone}>
+					{#each allTimezones() as z (z)}
+						<option value={z}>{z.replace(/_/g, ' ')}</option>
+					{/each}
+				</select>
+				<p class="mt-1.5 mb-0 text-footnote u-faint">
+					The dates above are read in this zone. Everyone else sees their own.
+				</p>
+			</div>
 
-		<button
-			class="bg-ink w-full rounded-xl p-3.5 text-[15px] font-semibold text-white disabled:opacity-60"
-			disabled={busy}
-		>
-			{busy ? 'Creating…' : 'Create the link'}
-		</button>
+			<Button variant="primary" type="submit" disabled={busy}>
+				{busy ? 'Creating the link' : 'Create the link'}
+			</Button>
+		</Card>
 	</form>
 </div>
+
+<style>
+	.picker {
+		width: 100%;
+		min-height: var(--spacing-touch);
+		padding: 0 0.75rem;
+		border: 1px solid var(--hairline-strong);
+		border-radius: var(--radius-control);
+		background: var(--surface);
+		color: var(--ink);
+		font-family: inherit;
+		font-size: var(--text-body);
+	}
+	.picker:focus { border-color: var(--accent); }
+</style>

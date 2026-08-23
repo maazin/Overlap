@@ -7,6 +7,9 @@
 
 <svelte:head>
 	<link rel="icon" href={favicon} />
+	<!-- Tells the browser both appearances are handled, so form controls and
+	     scrollbars are drawn to match rather than staying light on a dark page. -->
+	<meta name="color-scheme" content="light dark" />
 </svelte:head>
 
 {@render children()}
