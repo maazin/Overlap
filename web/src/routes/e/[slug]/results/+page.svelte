@@ -1,22 +1,25 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { browser } from '$app/environment';
+	import { goto } from '$app/navigation';
 	import {
 		getEvent,
 		solve,
 		decide,
 		reopen,
 		icsURL,
+		graduate,
 		APIError,
 		type EventView,
 		type SolveView,
 		type RankedSlot
 	} from '$lib/api';
 	import { groupByDay, slotLabel, BLOCKS } from '$lib/dayparts';
-	import { loadToken, detectTimezone } from '$lib/identity';
+	import { loadToken, detectTimezone, saveGroupToken } from '$lib/identity';
 	import { subscribe } from '$lib/live';
 	import Button from '$lib/ui/Button.svelte';
 	import Card from '$lib/ui/Card.svelte';
+	import Field from '$lib/ui/Field.svelte';
 	import Banner from '$lib/ui/Banner.svelte';
 	import PageHeader from '$lib/ui/PageHeader.svelte';
 
@@ -27,6 +30,10 @@
 	let error = $state('');
 	let busy = $state(false);
 	let confirming = $state<string | null>(null);
+
+	let graduateOpen = $state(false);
+	let groupName = $state('');
+	let graduating = $state(false);
 
 	const token = browser ? loadToken(slug) : null;
 	const timezone = $derived(event?.you?.timezone ?? (browser ? detectTimezone() : 'UTC'));
@@ -150,6 +157,26 @@
 		}
 	}
 
+	/**
+	 * Graduation is offered once a decision has actually landed, never before.
+	 * That is the one moment the PRD calls out as the moment someone will
+	 * accept the setup cost of a group, because they have just watched
+	 * scheduling work rather than being asked to trust that it will.
+	 */
+	async function doGraduate() {
+		if (!token) return;
+		graduating = true;
+		error = '';
+		try {
+			const res = await graduate(slug, token, groupName.trim());
+			saveGroupToken(res.group_slug, res.token);
+			await goto(`/g/${res.group_slug}`);
+		} catch (e) {
+			error = e instanceof Error ? e.message : String(e);
+			graduating = false;
+		}
+	}
+
 	/** Heat band for the overview. Ruled out slots read as struck through. */
 	function heat(r: RankedSlot | undefined): string {
 		if (!r) return 'none';
@@ -222,6 +249,31 @@
 					{/if}
 				</Card>
 			</div>
+
+			{#if isOrganizer && !event.group_slug}
+				<div class="mb-4">
+					<Card>
+						<h2 class="m-0 mb-1 text-heading font-semibold">Schedule with these people again?</h2>
+						<p class="mt-0 mb-4 text-subhead u-muted">
+							Names, timezones and roles carry over. Next time takes one tap instead of typing
+							everything in again.
+						</p>
+						{#if graduateOpen}
+							<Field
+								label="Group name"
+								bind:value={groupName}
+								placeholder={event.title}
+								hint="Shown to everyone in the group."
+							/>
+							<Button variant="primary" onclick={doGraduate} disabled={graduating}>
+								{graduating ? 'Creating the group' : 'Make a group'}
+							</Button>
+						{:else}
+							<Button onclick={() => (graduateOpen = true)}>Make a group</Button>
+						{/if}
+					</Card>
+				</div>
+			{/if}
 		{:else}
 			{#if verdict}
 				<div class="mb-5">

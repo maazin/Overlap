@@ -12,6 +12,7 @@ import (
 	"github.com/maazin/Overlap/api/internal/solver"
 	"github.com/maazin/Overlap/api/internal/sse"
 	"github.com/maazin/Overlap/api/internal/store"
+	"github.com/maazin/Overlap/api/internal/tz"
 )
 
 // rankedSlot is one scored slot as the API reports it.
@@ -186,11 +187,35 @@ func (s *Server) rankAndAnalyze(r *http.Request, ev store.Event) (
 	in := results.Build(ps, rs, exp.Starts)
 	cfg := solver.DefaultConfig()
 
-	return solver.Rank(in.Slots, in.Participants, in.Responses, cfg),
+	// A group's scheduling habit only ever breaks a near-tie, and only for a
+	// group-owned event -- a one-off link has no history to consult. Dominance
+	// is left on the plain scores regardless: whether an outcome is certain is
+	// a mathematical question, and a habit has no bearing on certainty.
+	var hist solver.HistoryAffinity
+	if ev.GroupID != nil {
+		loc, err := tz.Load(ev.OrganizerTZ)
+		if err != nil {
+			loc = time.UTC
+		}
+		decisions, err := s.store.GroupDecisionHistory(r.Context(), *ev.GroupID)
+		if err != nil {
+			s.log.ErrorContext(r.Context(), "load group history", "err", err)
+		} else {
+			hist = solver.AffinityFromDecisions(decisions, loc, historyHalfLife, time.Now())
+		}
+	}
+
+	return solver.RankWithHistory(in.Slots, in.Participants, in.Responses, cfg, hist),
 		ps,
 		solver.Analyze(in.Slots, in.Participants, in.Responses, cfg),
 		nil
 }
+
+// historyHalfLife is the 30-day decay the PRD specifies. Without decay a
+// group ossifies on whatever it picked a year ago, silently suppressing the
+// exact preference drift -- a new class, a teammate's timezone change -- the
+// feature is meant to surface instead.
+const historyHalfLife = 30 * 24 * time.Hour
 
 func toRankedSlot(sc solver.SlotScore, total int) rankedSlot {
 	return rankedSlot{

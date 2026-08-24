@@ -7,6 +7,7 @@
 		putResponses,
 		connectICS,
 		disconnectCalendar,
+		claimEventSeat,
 		APIError,
 		type EventView,
 		type Tier,
@@ -24,7 +25,7 @@
 		TIER_LABELS,
 		type Cell
 	} from '$lib/dayparts';
-	import { loadToken, saveToken, detectTimezone, allTimezones } from '$lib/identity';
+	import { loadToken, saveToken, loadGroupToken, detectTimezone, allTimezones } from '$lib/identity';
 	import Button from '$lib/ui/Button.svelte';
 	import Card from '$lib/ui/Card.svelte';
 	import Field from '$lib/ui/Field.svelte';
@@ -102,7 +103,31 @@
 	async function load() {
 		try {
 			token = loadToken(slug);
-			const ev = await getEvent(slug, token);
+			let ev = await getEvent(slug, token);
+
+			// A group-created event pre-populates nothing until somebody
+			// actually opens it, but a returning group member should never see
+			// the name prompt for a seat their membership already describes.
+			// If there is no local event token yet, but this event belongs to a
+			// group we do have a cached membership for, claim the seat silently
+			// before falling through to asking for a name.
+			if (!ev.you && ev.group_slug) {
+				const groupToken = loadGroupToken(ev.group_slug);
+				if (groupToken) {
+					try {
+						const seat = await claimEventSeat(slug, groupToken);
+						token = seat.token;
+						saveToken(slug, seat.token);
+						ev = await getEvent(slug, token);
+					} catch {
+						// The cached group token is stale (membership was
+						// reclaimed elsewhere, or the token was revoked some
+						// other way). Falling through to the name prompt is the
+						// correct recovery, not a dead end.
+					}
+				}
+			}
+
 			event = ev;
 
 			if (ev.you) {

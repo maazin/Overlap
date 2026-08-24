@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -92,6 +93,26 @@ func TestPreflightShortCircuits(t *testing.T) {
 	}
 	if rec.Header().Get("Access-Control-Allow-Methods") == "" {
 		t.Fatal("preflight must advertise allowed methods")
+	}
+}
+
+// TestCORSAllowsEveryTokenHeaderTheAPIRequires pins each custom header a
+// handler actually reads against the CORS allowlist. A header a handler needs
+// but CORS does not advertise fails silently from a browser: the preflight
+// still returns 204, so nothing looks wrong until the real request is
+// rejected client-side with no server log to point at, which is exactly how
+// X-Member-Token shipped broken the first time.
+func TestCORSAllowsEveryTokenHeaderTheAPIRequires(t *testing.T) {
+	req := httptest.NewRequest(http.MethodOptions, "/api/health", nil)
+	req.Header.Set("Origin", "http://localhost:5173")
+	rec := httptest.NewRecorder()
+	testServer().Routes().ServeHTTP(rec, req)
+
+	allowed := rec.Header().Get("Access-Control-Allow-Headers")
+	for _, want := range []string{TokenHeader, GroupTokenHeader} {
+		if !strings.Contains(allowed, want) {
+			t.Errorf("Access-Control-Allow-Headers = %q, missing %q", allowed, want)
+		}
 	}
 }
 

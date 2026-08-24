@@ -17,7 +17,7 @@ insert into participants (
 ) values (
     $1, $2, $3, $4, $5, $6
 )
-returning id, event_id, token_hash, display_name, tz, role, email, calendar_source, is_organizer, responded_at, created_at, calendar_url
+returning id, event_id, token_hash, display_name, tz, role, email, calendar_source, is_organizer, responded_at, created_at, calendar_url, group_member_id
 `
 
 type CreateParticipantParams struct {
@@ -52,6 +52,7 @@ func (q *Queries) CreateParticipant(ctx context.Context, arg CreateParticipantPa
 		&i.RespondedAt,
 		&i.CreatedAt,
 		&i.CalendarUrl,
+		&i.GroupMemberID,
 	)
 	return i, err
 }
@@ -66,7 +67,7 @@ func (q *Queries) DeleteBusyBlocks(ctx context.Context, participantID pgtype.UUI
 }
 
 const getParticipantByToken = `-- name: GetParticipantByToken :one
-select id, event_id, token_hash, display_name, tz, role, email, calendar_source, is_organizer, responded_at, created_at, calendar_url from participants where event_id = $1 and token_hash = $2
+select id, event_id, token_hash, display_name, tz, role, email, calendar_source, is_organizer, responded_at, created_at, calendar_url, group_member_id from participants where event_id = $1 and token_hash = $2
 `
 
 type GetParticipantByTokenParams struct {
@@ -90,6 +91,7 @@ func (q *Queries) GetParticipantByToken(ctx context.Context, arg GetParticipantB
 		&i.RespondedAt,
 		&i.CreatedAt,
 		&i.CalendarUrl,
+		&i.GroupMemberID,
 	)
 	return i, err
 }
@@ -114,6 +116,38 @@ func (q *Queries) InsertBusyBlocks(ctx context.Context, arg InsertBusyBlocksPara
 		arg.Source,
 	)
 	return err
+}
+
+const linkParticipantToGroupMember = `-- name: LinkParticipantToGroupMember :one
+update participants set group_member_id = $2
+where id = $1
+returning id, event_id, token_hash, display_name, tz, role, email, calendar_source, is_organizer, responded_at, created_at, calendar_url, group_member_id
+`
+
+type LinkParticipantToGroupMemberParams struct {
+	ID            pgtype.UUID
+	GroupMemberID pgtype.UUID
+}
+
+func (q *Queries) LinkParticipantToGroupMember(ctx context.Context, arg LinkParticipantToGroupMemberParams) (Participant, error) {
+	row := q.db.QueryRow(ctx, linkParticipantToGroupMember, arg.ID, arg.GroupMemberID)
+	var i Participant
+	err := row.Scan(
+		&i.ID,
+		&i.EventID,
+		&i.TokenHash,
+		&i.DisplayName,
+		&i.Tz,
+		&i.Role,
+		&i.Email,
+		&i.CalendarSource,
+		&i.IsOrganizer,
+		&i.RespondedAt,
+		&i.CreatedAt,
+		&i.CalendarUrl,
+		&i.GroupMemberID,
+	)
+	return i, err
 }
 
 const listBusyBlocks = `-- name: ListBusyBlocks :many
@@ -148,7 +182,7 @@ func (q *Queries) ListBusyBlocks(ctx context.Context, participantID pgtype.UUID)
 }
 
 const listParticipants = `-- name: ListParticipants :many
-select id, event_id, token_hash, display_name, tz, role, email, calendar_source, is_organizer, responded_at, created_at, calendar_url from participants where event_id = $1 order by created_at, id
+select id, event_id, token_hash, display_name, tz, role, email, calendar_source, is_organizer, responded_at, created_at, calendar_url, group_member_id from participants where event_id = $1 order by created_at, id
 `
 
 func (q *Queries) ListParticipants(ctx context.Context, eventID pgtype.UUID) ([]Participant, error) {
@@ -173,6 +207,7 @@ func (q *Queries) ListParticipants(ctx context.Context, eventID pgtype.UUID) ([]
 			&i.RespondedAt,
 			&i.CreatedAt,
 			&i.CalendarUrl,
+			&i.GroupMemberID,
 		); err != nil {
 			return nil, err
 		}

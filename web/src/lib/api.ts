@@ -51,6 +51,9 @@ export type EventView = {
 	slots: string[];
 	dst_notes?: DSTNote[];
 	expires_at: string;
+	/** Set when this event belongs to a group. Lets the client look for a
+	 * cached group token and offer to seat someone automatically. */
+	group_slug?: string;
 	participants: ParticipantView[];
 	you?: SelfView;
 };
@@ -236,3 +239,121 @@ export const disconnectCalendar = (slug: string, token: string) =>
 /** The .ics is fetched by the browser directly, so this is a plain URL. */
 export const icsURL = (slug: string) =>
 	`${API_URL}/api/events/${encodeURIComponent(slug)}/decided.ics`;
+
+// --- graduation and groups ----------------------------------------------------
+
+export type GraduateResult = {
+	group_slug: string;
+	member_id: string;
+	token: string;
+};
+
+/** Mints a group from a resolved event's participants. Organizer only. */
+export const graduate = (slug: string, token: string, name: string) =>
+	request<GraduateResult>(`/api/events/${encodeURIComponent(slug)}/graduate`, {
+		method: 'POST',
+		headers: { 'X-Participant-Token': token },
+		body: JSON.stringify({ name })
+	});
+
+/** Authenticates a group member into a group-created event's seat, using
+ * their group token, with no name or timezone re-entry. */
+export const claimEventSeat = (slug: string, memberToken: string) =>
+	request<JoinResult>(`/api/events/${encodeURIComponent(slug)}/claim`, {
+		method: 'POST',
+		headers: { 'X-Member-Token': memberToken }
+	});
+
+export type GroupMemberView = {
+	id: string;
+	name: string;
+	role: Role;
+	claimed: boolean;
+	has_calendar: boolean;
+};
+
+export type GroupEventView = {
+	slug: string;
+	title: string;
+	status: string;
+	decided_slot_start?: string;
+	created_at: string;
+};
+
+export type GroupView = {
+	slug: string;
+	name: string;
+	members: GroupMemberView[];
+	events: GroupEventView[];
+	you?: GroupMemberView;
+};
+
+export const getGroup = (slug: string, memberToken?: string | null) =>
+	request<GroupView>(`/api/groups/${encodeURIComponent(slug)}`, {
+		headers: memberToken ? { 'X-Member-Token': memberToken } : {}
+	});
+
+export type MemberTokenResult = {
+	member_id: string;
+	token: string;
+	name: string;
+	timezone: string;
+	role: Role;
+};
+
+/** A genuinely new person following the group link for the first time. */
+export const joinGroup = (slug: string, name: string, timezone: string) =>
+	request<MemberTokenResult>(`/api/groups/${encodeURIComponent(slug)}/members`, {
+		method: 'POST',
+		body: JSON.stringify({ name, timezone })
+	});
+
+/** Binds this device to an existing roster row, whether it is unclaimed
+ * (graduation seeded it, nobody has opened the link yet) or already claimed
+ * elsewhere (recovery on a new device). No verification beyond picking the
+ * right row: nothing behind this door needs more than that. */
+export const claimGroupMember = (slug: string, memberID: string) =>
+	request<MemberTokenResult>(`/api/groups/${encodeURIComponent(slug)}/members/claim`, {
+		method: 'POST',
+		body: JSON.stringify({ member_id: memberID })
+	});
+
+export const connectGroupICS = (slug: string, memberToken: string, url: string) =>
+	request<ConnectICSResult>(`/api/groups/${encodeURIComponent(slug)}/calendar/ics`, {
+		method: 'POST',
+		headers: { 'X-Member-Token': memberToken },
+		body: JSON.stringify({ url })
+	});
+
+export const disconnectGroupCalendar = (slug: string, memberToken: string) =>
+	request<{ source: string }>(`/api/groups/${encodeURIComponent(slug)}/calendar`, {
+		method: 'DELETE',
+		headers: { 'X-Member-Token': memberToken }
+	});
+
+export type GroupProposal = {
+	slot_start: string;
+	considered: string[];
+};
+
+export type CreateGroupEventResult = {
+	event_slug: string;
+	organizer_token?: string;
+	participant_id?: string;
+	proposal?: GroupProposal;
+};
+
+/** Starts a new event for the group. The creator is seated as organizer with
+ * nothing re-typed; everyone else claims their own seat with their group
+ * token the first time they open the link. */
+export const createGroupEvent = (slug: string, memberToken: string, body: CreateEventBody) =>
+	request<CreateGroupEventResult>(`/api/groups/${encodeURIComponent(slug)}/events`, {
+		method: 'POST',
+		headers: { 'X-Member-Token': memberToken },
+		body: JSON.stringify(body)
+	});
+
+export const getGroupProposal = (slug: string, eventSlug: string) =>
+	request<{ proposal: GroupProposal | null }>(
+		`/api/groups/${encodeURIComponent(slug)}/proposal?event=${encodeURIComponent(eventSlug)}`
+	);

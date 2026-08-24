@@ -31,6 +31,37 @@ type Event struct {
 	DecidedSlotStart pgtype.Timestamptz
 	CreatedAt        pgtype.Timestamptz
 	ExpiresAt        pgtype.Timestamptz
+	GroupID          pgtype.UUID
+	DecidedAt        pgtype.Timestamptz
+}
+
+type Group struct {
+	ID          pgtype.UUID
+	Slug        string
+	Name        string
+	CreatedFrom pgtype.UUID
+	CreatedAt   pgtype.Timestamptz
+}
+
+type GroupMember struct {
+	ID             pgtype.UUID
+	GroupID        pgtype.UUID
+	TokenHash      []byte
+	DisplayName    string
+	Tz             string
+	DefaultRole    string
+	CalendarSource string
+	CalendarUrl    pgtype.Text
+	JoinedAt       pgtype.Timestamptz
+}
+
+type GroupMemberBusyBlock struct {
+	ID            pgtype.UUID
+	GroupMemberID pgtype.UUID
+	StartTs       pgtype.Timestamptz
+	EndTs         pgtype.Timestamptz
+	Source        string
+	FetchedAt     pgtype.Timestamptz
 }
 
 type Participant struct {
@@ -46,6 +77,7 @@ type Participant struct {
 	RespondedAt    pgtype.Timestamptz
 	CreatedAt      pgtype.Timestamptz
 	CalendarUrl    pgtype.Text
+	GroupMemberID  pgtype.UUID
 }
 
 type Response struct {

@@ -74,9 +74,15 @@
 		border: 1px solid var(--hairline-strong);
 	}
 
+	/* Inherits its colour rather than hardcoding one, so the same "quiet"
+	   button reads correctly whether it sits on the ordinary surface or on a
+	   deep accent card. A fixed --ink-muted looked fine on a plain card and
+	   went nearly invisible on the dark positive ground, because that ground
+	   sets its own light foreground and a hardcoded colour cannot see it. */
 	.v-quiet {
 		background: transparent;
-		color: var(--ink-muted);
+		color: inherit;
+		opacity: 0.72;
 		border: 1px solid transparent;
 	}
 
@@ -97,7 +103,7 @@
 	@media (hover: hover) {
 		.v-primary:hover:not(:disabled) { opacity: 0.88; }
 		.v-secondary:hover:not(:disabled) { background: var(--raised); }
-		.v-quiet:hover:not(:disabled) { color: var(--ink); }
+		.v-quiet:hover:not(:disabled) { opacity: 1; }
 		.v-positive:hover:not(:disabled) { opacity: 0.9; }
 		.v-caution:hover:not(:disabled) { opacity: 0.9; }
 	}

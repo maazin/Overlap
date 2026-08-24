@@ -29,3 +29,8 @@ select $1, unnest($2::timestamptz[]), unnest($3::timestamptz[]), $4;
 
 -- name: ListBusyBlocks :many
 select * from busy_blocks where participant_id = $1 order by start_ts;
+
+-- name: LinkParticipantToGroupMember :one
+update participants set group_member_id = $2
+where id = $1
+returning *;

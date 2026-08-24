@@ -18,7 +18,7 @@ insert into events (
 ) values (
     $1, $2, $3, $4, $5, $6, $7, $8
 )
-returning id, slug, title, organizer_tz, window_start, window_end, day_start, day_end, slot_minutes, status, decided_slot_start, created_at, expires_at
+returning id, slug, title, organizer_tz, window_start, window_end, day_start, day_end, slot_minutes, status, decided_slot_start, created_at, expires_at, group_id, decided_at
 `
 
 type CreateEventParams struct {
@@ -58,15 +58,72 @@ func (q *Queries) CreateEvent(ctx context.Context, arg CreateEventParams) (Event
 		&i.DecidedSlotStart,
 		&i.CreatedAt,
 		&i.ExpiresAt,
+		&i.GroupID,
+		&i.DecidedAt,
+	)
+	return i, err
+}
+
+const createEventInGroup = `-- name: CreateEventInGroup :one
+insert into events (
+    slug, title, organizer_tz,
+    window_start, window_end, day_start, day_end, slot_minutes, group_id
+) values (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9
+)
+returning id, slug, title, organizer_tz, window_start, window_end, day_start, day_end, slot_minutes, status, decided_slot_start, created_at, expires_at, group_id, decided_at
+`
+
+type CreateEventInGroupParams struct {
+	Slug        string
+	Title       string
+	OrganizerTz string
+	WindowStart pgtype.Date
+	WindowEnd   pgtype.Date
+	DayStart    pgtype.Time
+	DayEnd      pgtype.Time
+	SlotMinutes int32
+	GroupID     pgtype.UUID
+}
+
+func (q *Queries) CreateEventInGroup(ctx context.Context, arg CreateEventInGroupParams) (Event, error) {
+	row := q.db.QueryRow(ctx, createEventInGroup,
+		arg.Slug,
+		arg.Title,
+		arg.OrganizerTz,
+		arg.WindowStart,
+		arg.WindowEnd,
+		arg.DayStart,
+		arg.DayEnd,
+		arg.SlotMinutes,
+		arg.GroupID,
+	)
+	var i Event
+	err := row.Scan(
+		&i.ID,
+		&i.Slug,
+		&i.Title,
+		&i.OrganizerTz,
+		&i.WindowStart,
+		&i.WindowEnd,
+		&i.DayStart,
+		&i.DayEnd,
+		&i.SlotMinutes,
+		&i.Status,
+		&i.DecidedSlotStart,
+		&i.CreatedAt,
+		&i.ExpiresAt,
+		&i.GroupID,
+		&i.DecidedAt,
 	)
 	return i, err
 }
 
 const decideEvent = `-- name: DecideEvent :one
 update events
-set status = 'decided', decided_slot_start = $2
+set status = 'decided', decided_slot_start = $2, decided_at = now()
 where id = $1
-returning id, slug, title, organizer_tz, window_start, window_end, day_start, day_end, slot_minutes, status, decided_slot_start, created_at, expires_at
+returning id, slug, title, organizer_tz, window_start, window_end, day_start, day_end, slot_minutes, status, decided_slot_start, created_at, expires_at, group_id, decided_at
 `
 
 type DecideEventParams struct {
@@ -91,12 +148,14 @@ func (q *Queries) DecideEvent(ctx context.Context, arg DecideEventParams) (Event
 		&i.DecidedSlotStart,
 		&i.CreatedAt,
 		&i.ExpiresAt,
+		&i.GroupID,
+		&i.DecidedAt,
 	)
 	return i, err
 }
 
 const getEventBySlug = `-- name: GetEventBySlug :one
-select id, slug, title, organizer_tz, window_start, window_end, day_start, day_end, slot_minutes, status, decided_slot_start, created_at, expires_at from events where slug = $1
+select id, slug, title, organizer_tz, window_start, window_end, day_start, day_end, slot_minutes, status, decided_slot_start, created_at, expires_at, group_id, decided_at from events where slug = $1
 `
 
 func (q *Queries) GetEventBySlug(ctx context.Context, slug string) (Event, error) {
@@ -116,15 +175,51 @@ func (q *Queries) GetEventBySlug(ctx context.Context, slug string) (Event, error
 		&i.DecidedSlotStart,
 		&i.CreatedAt,
 		&i.ExpiresAt,
+		&i.GroupID,
+		&i.DecidedAt,
+	)
+	return i, err
+}
+
+const linkEventToGroup = `-- name: LinkEventToGroup :one
+update events set group_id = $2
+where id = $1
+returning id, slug, title, organizer_tz, window_start, window_end, day_start, day_end, slot_minutes, status, decided_slot_start, created_at, expires_at, group_id, decided_at
+`
+
+type LinkEventToGroupParams struct {
+	ID      pgtype.UUID
+	GroupID pgtype.UUID
+}
+
+func (q *Queries) LinkEventToGroup(ctx context.Context, arg LinkEventToGroupParams) (Event, error) {
+	row := q.db.QueryRow(ctx, linkEventToGroup, arg.ID, arg.GroupID)
+	var i Event
+	err := row.Scan(
+		&i.ID,
+		&i.Slug,
+		&i.Title,
+		&i.OrganizerTz,
+		&i.WindowStart,
+		&i.WindowEnd,
+		&i.DayStart,
+		&i.DayEnd,
+		&i.SlotMinutes,
+		&i.Status,
+		&i.DecidedSlotStart,
+		&i.CreatedAt,
+		&i.ExpiresAt,
+		&i.GroupID,
+		&i.DecidedAt,
 	)
 	return i, err
 }
 
 const reopenEvent = `-- name: ReopenEvent :one
 update events
-set status = 'open', decided_slot_start = null
+set status = 'open', decided_slot_start = null, decided_at = null
 where id = $1
-returning id, slug, title, organizer_tz, window_start, window_end, day_start, day_end, slot_minutes, status, decided_slot_start, created_at, expires_at
+returning id, slug, title, organizer_tz, window_start, window_end, day_start, day_end, slot_minutes, status, decided_slot_start, created_at, expires_at, group_id, decided_at
 `
 
 func (q *Queries) ReopenEvent(ctx context.Context, id pgtype.UUID) (Event, error) {
@@ -144,6 +239,8 @@ func (q *Queries) ReopenEvent(ctx context.Context, id pgtype.UUID) (Event, error
 		&i.DecidedSlotStart,
 		&i.CreatedAt,
 		&i.ExpiresAt,
+		&i.GroupID,
+		&i.DecidedAt,
 	)
 	return i, err
 }

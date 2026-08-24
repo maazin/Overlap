@@ -36,6 +36,11 @@ type Event struct {
 
 	Status           string
 	DecidedSlotStart *time.Time
+	DecidedAt        *time.Time
+
+	// GroupID is set when this event was created from a group. Nil for the
+	// bare one-off link, which must always keep working standalone.
+	GroupID *string
 
 	CreatedAt time.Time
 	ExpiresAt time.Time
@@ -82,6 +87,10 @@ type NewEvent struct {
 	// joined yet, which is legitimate: the link is what matters, not the
 	// account.
 	Organizer *NewParticipant
+
+	// GroupID links this event to a group at creation. Empty for the ordinary
+	// one-off flow.
+	GroupID string
 }
 
 // CreatedEvent is what CreateEvent returns. OrganizerToken is empty unless an
@@ -133,7 +142,16 @@ func (s *Store) createEventTx(ctx context.Context, slug string, in NewEvent) (Cr
 
 	q := s.q.WithTx(tx)
 
-	row, err := q.CreateEvent(ctx, dbgen.CreateEventParams{
+	var groupID pgtype.UUID
+	if in.GroupID != "" {
+		id, err := parseUUID(in.GroupID)
+		if err != nil {
+			return CreatedEvent{}, err
+		}
+		groupID = id
+	}
+
+	row, err := q.CreateEventInGroup(ctx, dbgen.CreateEventInGroupParams{
 		Slug:        slug,
 		Title:       in.Title,
 		OrganizerTz: in.OrganizerTZ,
@@ -142,6 +160,7 @@ func (s *Store) createEventTx(ctx context.Context, slug string, in NewEvent) (Cr
 		DayStart:    encodeTimeOfDay(in.DayStart),
 		DayEnd:      encodeTimeOfDay(in.DayEnd),
 		SlotMinutes: int32(in.SlotMinutes),
+		GroupID:     groupID,
 	})
 	if err != nil {
 		// Returned unwrapped so CreateEvent can recognise a slug collision.
@@ -260,6 +279,14 @@ func decodeEvent(row dbgen.Event) (Event, error) {
 	if row.DecidedSlotStart.Valid {
 		t := row.DecidedSlotStart.Time
 		e.DecidedSlotStart = &t
+	}
+	if row.DecidedAt.Valid {
+		t := row.DecidedAt.Time
+		e.DecidedAt = &t
+	}
+	if row.GroupID.Valid {
+		id := formatUUID(row.GroupID)
+		e.GroupID = &id
 	}
 	return e, nil
 }

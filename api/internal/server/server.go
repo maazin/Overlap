@@ -79,6 +79,21 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("DELETE /api/events/{slug}/calendar",
 		s.requireParticipant(http.HandlerFunc(s.handleDisconnectCalendar)))
 
+	mux.Handle("POST /api/events/{slug}/graduate",
+		s.requireParticipant(http.HandlerFunc(s.handleGraduate)))
+	mux.HandleFunc("POST /api/events/{slug}/claim", s.handleClaimEventSeat)
+
+	mux.HandleFunc("GET /api/groups/{slug}", s.handleGetGroup)
+	mux.HandleFunc("POST /api/groups/{slug}/members", s.handleJoinGroup)
+	mux.HandleFunc("POST /api/groups/{slug}/members/claim", s.handleClaimGroupMember)
+	mux.Handle("POST /api/groups/{slug}/calendar/ics",
+		s.requireGroupMember(http.HandlerFunc(s.handleConnectGroupICS)))
+	mux.Handle("DELETE /api/groups/{slug}/calendar",
+		s.requireGroupMember(http.HandlerFunc(s.handleDisconnectGroupCalendar)))
+	mux.Handle("POST /api/groups/{slug}/events",
+		s.requireGroupMember(http.HandlerFunc(s.handleCreateGroupEvent)))
+	mux.HandleFunc("GET /api/groups/{slug}/proposal", s.handleGroupProposal)
+
 	return s.recoverPanic(s.logRequests(s.cors(mux)))
 }
 

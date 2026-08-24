@@ -11,22 +11,51 @@ import (
 )
 
 type Querier interface {
+	ClaimGroupMember(ctx context.Context, arg ClaimGroupMemberParams) (GroupMember, error)
 	CreateEvent(ctx context.Context, arg CreateEventParams) (Event, error)
+	CreateEventInGroup(ctx context.Context, arg CreateEventInGroupParams) (Event, error)
+	CreateGroup(ctx context.Context, arg CreateGroupParams) (Group, error)
+	CreateGroupMember(ctx context.Context, arg CreateGroupMemberParams) (GroupMember, error)
 	CreateParticipant(ctx context.Context, arg CreateParticipantParams) (Participant, error)
+	CreateParticipantFromGroupMember(ctx context.Context, arg CreateParticipantFromGroupMemberParams) (Participant, error)
 	DecideEvent(ctx context.Context, arg DecideEventParams) (Event, error)
 	DeleteBusyBlocks(ctx context.Context, participantID pgtype.UUID) error
+	DeleteGroupMemberBusyBlocks(ctx context.Context, groupMemberID pgtype.UUID) error
 	DeleteResponsesForParticipant(ctx context.Context, participantID pgtype.UUID) error
 	GetEventBySlug(ctx context.Context, slug string) (Event, error)
+	GetGroupByID(ctx context.Context, id pgtype.UUID) (Group, error)
+	GetGroupBySlug(ctx context.Context, slug string) (Group, error)
+	GetGroupMemberByID(ctx context.Context, arg GetGroupMemberByIDParams) (GroupMember, error)
+	// Used only where the caller has already established which group this id
+	// belongs to through some other verified path (a checked token, an id read
+	// back from a row already scoped to the right group). ClaimEventSeat is the
+	// one caller: by the time it runs, the event's own group_id has already
+	// picked out which group this member id must belong to.
+	GetGroupMemberByIDUnscoped(ctx context.Context, id pgtype.UUID) (GroupMember, error)
+	GetGroupMemberByToken(ctx context.Context, arg GetGroupMemberByTokenParams) (GroupMember, error)
+	GetParticipantByGroupMember(ctx context.Context, arg GetParticipantByGroupMemberParams) (Participant, error)
 	GetParticipantByToken(ctx context.Context, arg GetParticipantByTokenParams) (Participant, error)
 	InsertBusyBlocks(ctx context.Context, arg InsertBusyBlocksParams) error
+	InsertGroupMemberBusyBlocks(ctx context.Context, arg InsertGroupMemberBusyBlocksParams) error
 	InsertResponses(ctx context.Context, arg InsertResponsesParams) error
+	LinkEventToGroup(ctx context.Context, arg LinkEventToGroupParams) (Event, error)
+	LinkParticipantToGroupMember(ctx context.Context, arg LinkParticipantToGroupMemberParams) (Participant, error)
 	ListBusyBlocks(ctx context.Context, participantID pgtype.UUID) ([]BusyBlock, error)
+	// Past decisions the group actually settled on, oldest information excluded by
+	// nothing here -- decay is applied in Go, where the half-life constant lives
+	// next to the rest of the scoring model rather than duplicated in SQL.
+	ListGroupDecisions(ctx context.Context, groupID pgtype.UUID) ([]ListGroupDecisionsRow, error)
+	ListGroupEvents(ctx context.Context, groupID pgtype.UUID) ([]Event, error)
+	ListGroupMemberBusyBlocks(ctx context.Context, groupMemberID pgtype.UUID) ([]GroupMemberBusyBlock, error)
+	ListGroupMembers(ctx context.Context, groupID pgtype.UUID) ([]GroupMember, error)
 	ListParticipants(ctx context.Context, eventID pgtype.UUID) ([]Participant, error)
 	ListResponsesForEvent(ctx context.Context, eventID pgtype.UUID) ([]Response, error)
 	ListResponsesForParticipant(ctx context.Context, participantID pgtype.UUID) ([]Response, error)
 	MarkParticipantResponded(ctx context.Context, id pgtype.UUID) error
 	ReopenEvent(ctx context.Context, id pgtype.UUID) (Event, error)
+	RotateParticipantToken(ctx context.Context, arg RotateParticipantTokenParams) (Participant, error)
 	SetCalendarSource(ctx context.Context, arg SetCalendarSourceParams) error
+	SetGroupMemberCalendar(ctx context.Context, arg SetGroupMemberCalendarParams) error
 }
 
 var _ Querier = (*Queries)(nil)

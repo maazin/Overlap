@@ -74,6 +74,11 @@ type eventResponse struct {
 	DSTNotes  []dstNote `json:"dst_notes,omitempty"`
 	ExpiresAt time.Time `json:"expires_at"`
 
+	// GroupSlug is set when this event belongs to a group, so the client can
+	// look for a cached group token and offer to claim a seat automatically
+	// instead of asking for a name it already knows.
+	GroupSlug string `json:"group_slug,omitempty"`
+
 	Participants []participantView `json:"participants"`
 
 	// You is present only when the request carried a recognised token. It is
@@ -192,6 +197,14 @@ func (s *Server) handleGetEvent(w http.ResponseWriter, r *http.Request) {
 		Slots:       make([]time.Time, len(exp.Starts)),
 		DSTNotes:    dstNotes(exp),
 		ExpiresAt:   ev.ExpiresAt.UTC(),
+	}
+
+	if ev.GroupID != nil {
+		if g, err := s.store.GroupByID(r.Context(), *ev.GroupID); err == nil {
+			out.GroupSlug = g.Slug
+		} else {
+			s.log.ErrorContext(r.Context(), "resolve event's group", "err", err)
+		}
 	}
 	for i, t := range exp.Starts {
 		out.Slots[i] = t.UTC()

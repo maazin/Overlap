@@ -67,3 +67,33 @@ export function allTimezones(): string[] {
 	}
 	return [detectTimezone(), 'UTC'];
 }
+
+/**
+ * Group tokens are stored separately from event tokens, keyed by group slug.
+ *
+ * The two must never collide: a group token authenticates standing
+ * membership, an event token authenticates one response, and the server
+ * checks each against a different resource entirely. Keeping them in
+ * different keys is what lets the event page look up "do I already belong to
+ * the group this event came from" without any risk of reading the wrong kind
+ * of token by accident.
+ */
+const groupKey = (slug: string) => `overlap:group-token:${slug}`;
+
+export function loadGroupToken(slug: string): string | null {
+	if (!browser) return null;
+	try {
+		return localStorage.getItem(groupKey(slug));
+	} catch {
+		return null;
+	}
+}
+
+export function saveGroupToken(slug: string, token: string): void {
+	if (!browser) return;
+	try {
+		localStorage.setItem(groupKey(slug), token);
+	} catch {
+		/* the response still works; only cross-device recall is lost */
+	}
+}
