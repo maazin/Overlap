@@ -424,6 +424,109 @@ func TestRecurrenceKeepsLocalTimeAcrossDST(t *testing.T) {
 }
 
 // TestRunawayRuleIsBounded guards against a feed with no COUNT and no UNTIL.
+// TestOldUncountedDailySeriesStillReachesTheWindow is the bug an uncounted,
+// unbounded RRULE ran into: the stepping loop is capped at maxOccurrences so
+// it cannot spin forever, but that cap is a step count, not a date. A daily
+// standup set up in 2010 is over 5,000 days before a 2026 window -- more than
+// maxOccurrences steps away -- so walking one day at a time from the series'
+// own start burns the whole budget in 2010-2015 and never reaches the window,
+// silently reporting the person free during a meeting they attend every day.
+func TestOldUncountedDailySeriesStillReachesTheWindow(t *testing.T) {
+	got := parse(t, cal(`
+		UID:1
+		DTSTART:20100601T140000Z
+		DTEND:20100601T150000Z
+		RRULE:FREQ=DAILY
+	`))
+
+	// June 1-30 2026 are all in the window; the daily series must produce one
+	// occurrence per day, same as if it had started inside the window.
+	if len(got) != 30 {
+		t.Fatalf("got %d occurrences, want 30 -- one per day in June; the series lost the window entirely: %+v",
+			len(got), got)
+	}
+}
+
+// TestOldUncountedWeeklySeriesStillReachesTheWindow is the same failure mode
+// for a weekly series, which is the more common real-world shape (a
+// recurring 1:1 or team meeting set up years ago).
+func TestOldUncountedWeeklySeriesStillReachesTheWindow(t *testing.T) {
+	// 2000 weekly steps is about 38 years; 1985 to 2026 is over 40, past that
+	// budget, so this is not just a correctness check but a genuine regression
+	// test for the fast-forward -- it fails without it.
+	got := parse(t, cal(`
+		UID:1
+		DTSTART:19850605T140000Z
+		DTEND:19850605T150000Z
+		RRULE:FREQ=WEEKLY
+	`))
+
+	// June 3, 10, 17, 24 2026 are the Wednesdays in the window, matching the
+	// series' original weekday.
+	if len(got) != 4 {
+		t.Fatalf("got %d occurrences, want 4 Wednesdays; a 41-year-old weekly series lost the window: %+v",
+			len(got), got)
+	}
+}
+
+// TestFastForwardDoesNotSkipAnExdateNearTheWindow checks the safety margin:
+// jumping most of the way there must not overshoot past an excluded
+// occurrence close to the window, which the unchanged correction loop is
+// relied on to still catch.
+func TestFastForwardDoesNotSkipAnExdateNearTheWindow(t *testing.T) {
+	got := parse(t, cal(`
+		UID:1
+		DTSTART:20100601T140000Z
+		DTEND:20100601T150000Z
+		RRULE:FREQ=DAILY
+		EXDATE:20260601T140000Z
+	`))
+
+	for _, iv := range got {
+		if iv.Start.Equal(utc(2026, time.June, 1, 14, 0)) {
+			t.Fatal("June 1 was excluded and must not appear, even after fast-forwarding from 2010")
+		}
+	}
+	if len(got) != 29 {
+		t.Fatalf("got %d occurrences, want 29 (30 days minus the 1 excluded): %+v", len(got), got)
+	}
+}
+
+// TestFastForwardRespectsUntilBeforeTheWindow: a series whose UNTIL falls
+// before the window ended before the window opened, and fast-forwarding past
+// that boundary must still report nothing rather than resurrecting occurrences
+// the rule itself terminated.
+func TestFastForwardRespectsUntilBeforeTheWindow(t *testing.T) {
+	got := parse(t, cal(`
+		UID:1
+		DTSTART:20100601T140000Z
+		DTEND:20100601T150000Z
+		RRULE:FREQ=DAILY;UNTIL=20120101T000000Z
+	`))
+
+	if len(got) != 0 {
+		t.Fatalf("the series ended in 2012, years before the window; got %+v", got)
+	}
+}
+
+// TestFastForwardOnlyAppliesWithoutCount documents why COUNT needs no special
+// handling: a bounded series always exits within `count` steps regardless of
+// how far cur has to travel, so it was never subject to the maxOccurrences
+// trap and the fast-forward path is skipped for it entirely. A COUNT small
+// enough to finish long before a distant window must correctly find nothing.
+func TestFastForwardOnlyAppliesWithoutCount(t *testing.T) {
+	got := parse(t, cal(`
+		UID:1
+		DTSTART:20100601T140000Z
+		DTEND:20100601T150000Z
+		RRULE:FREQ=DAILY;COUNT=5
+	`))
+
+	if len(got) != 0 {
+		t.Fatalf("5 occurrences starting in 2010 all finished in 2010, nowhere near the window: %+v", got)
+	}
+}
+
 func TestRunawayRuleIsBounded(t *testing.T) {
 	got := parse(t, cal(`
 		UID:1

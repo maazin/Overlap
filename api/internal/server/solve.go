@@ -157,35 +157,61 @@ func (s *Server) handleSolve(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, r, http.StatusOK, out)
 }
 
-// rank loads everything an event's results depend on and scores it.
+// rank loads an event's data and scores it, without the dominance analysis.
+//
+// Deciding a slot needs the ranking (to find the chosen slot and check it is
+// not eliminated) but never the verdict, and the verdict is by far the more
+// expensive half. Computing and discarding it made every decide pay for work
+// nothing read.
 func (s *Server) rank(r *http.Request, ev store.Event) ([]solver.SlotScore, []store.Participant, error) {
-	ranked, ps, _, err := s.rankAndAnalyze(r, ev)
-	return ranked, ps, err
+	in, ps, cfg, hist, err := s.solverInputs(r, ev)
+	if err != nil {
+		return nil, nil, err
+	}
+	return solver.RankWithHistory(in.Slots, in.Participants, in.Responses, cfg, hist), ps, nil
 }
 
-// rankAndAnalyze loads the event's data once and derives both the ranking and
-// the dominance verdict from it, so the two can never be computed from
-// different snapshots and disagree about who is winning.
+// rankAndAnalyze derives both the ranking and the dominance verdict from a
+// single load, so the two can never be computed from different snapshots and
+// disagree about who is winning.
 func (s *Server) rankAndAnalyze(r *http.Request, ev store.Event) (
 	[]solver.SlotScore, []store.Participant, solver.Dominance, error,
 ) {
+	in, ps, cfg, hist, err := s.solverInputs(r, ev)
+	if err != nil {
+		return nil, nil, solver.Dominance{}, err
+	}
+
+	return solver.RankWithHistory(in.Slots, in.Participants, in.Responses, cfg, hist),
+		ps,
+		solver.Analyze(in.Slots, in.Participants, in.Responses, cfg),
+		nil
+}
+
+// solverInputs loads everything the solver needs for one event: the expanded
+// slots, the participants, their responses, and the group history affinity
+// when there is a group to have one.
+func (s *Server) solverInputs(r *http.Request, ev store.Event) (
+	results.Input, []store.Participant, solver.Config, solver.HistoryAffinity, error,
+) {
+	cfg := solver.DefaultConfig()
+
 	exp, err := ev.Slots()
 	if err != nil {
-		return nil, nil, solver.Dominance{}, fmt.Errorf("expand slots: %w", err)
+		return results.Input{}, nil, cfg, nil, fmt.Errorf("expand slots: %w", err)
 	}
 
 	ps, err := s.store.Participants(r.Context(), ev.ID)
 	if err != nil {
-		return nil, nil, solver.Dominance{}, err
+		return results.Input{}, nil, cfg, nil, err
 	}
 
 	rs, err := s.store.ResponsesForEvent(r.Context(), ev.ID)
 	if err != nil {
-		return nil, nil, solver.Dominance{}, err
+		return results.Input{}, nil, cfg, nil, err
 	}
 
 	in := results.Build(ps, rs, exp.Starts)
-	cfg := solver.DefaultConfig()
 
 	// A group's scheduling habit only ever breaks a near-tie, and only for a
 	// group-owned event -- a one-off link has no history to consult. Dominance
@@ -205,10 +231,7 @@ func (s *Server) rankAndAnalyze(r *http.Request, ev store.Event) (
 		}
 	}
 
-	return solver.RankWithHistory(in.Slots, in.Participants, in.Responses, cfg, hist),
-		ps,
-		solver.Analyze(in.Slots, in.Participants, in.Responses, cfg),
-		nil
+	return in, ps, cfg, hist, nil
 }
 
 // historyHalfLife is the 30-day decay the PRD specifies. Without decay a

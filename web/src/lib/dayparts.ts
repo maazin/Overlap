@@ -31,6 +31,35 @@ export type Cell = { date: string; block: Block };
 export const cellKey = (c: Cell) => `${c.date}|${c.block}`;
 
 /**
+ * A cache of Intl.DateTimeFormat instances, keyed by locale, zone and the
+ * option set that matters here (a short tag, not the whole options object).
+ *
+ * Constructing a DateTimeFormat is the expensive part of formatting a date --
+ * it resolves locale data and a time zone -- while calling .format() on an
+ * existing instance is cheap. Every function below calls one of these on
+ * every slot, and a week-long event has 100-200 slots re-formatted on every
+ * grid render, so building a fresh formatter per call rather than per
+ * (locale, zone, kind) turned "render the grid" into "construct several
+ * hundred formatters" for no reason.
+ */
+const formatterCache = new Map<string, Intl.DateTimeFormat>();
+
+function formatter(
+	kind: string,
+	locale: string | undefined,
+	tz: string,
+	options: Intl.DateTimeFormatOptions
+): Intl.DateTimeFormat {
+	const key = `${kind}|${locale ?? ''}|${tz}`;
+	let f = formatterCache.get(key);
+	if (!f) {
+		f = new Intl.DateTimeFormat(locale, { ...options, timeZone: tz });
+		formatterCache.set(key, f);
+	}
+	return f;
+}
+
+/**
  * Formats an instant as a YYYY-MM-DD local date in `tz`.
  *
  * Built from Intl parts rather than toISOString, which would give the UTC date
@@ -38,8 +67,7 @@ export const cellKey = (c: Cell) => `${c.date}|${c.block}`;
  * Greenwich.
  */
 export function localDate(instant: Date, tz: string): string {
-	const parts = new Intl.DateTimeFormat('en-CA', {
-		timeZone: tz,
+	const parts = formatter('date-ymd', 'en-CA', tz, {
 		year: 'numeric',
 		month: '2-digit',
 		day: '2-digit'
@@ -51,11 +79,7 @@ export function localDate(instant: Date, tz: string): string {
 
 /** The local hour of an instant in `tz`, 0-23. */
 export function localHour(instant: Date, tz: string): number {
-	const v = new Intl.DateTimeFormat('en-GB', {
-		timeZone: tz,
-		hour: '2-digit',
-		hour12: false
-	}).format(instant);
+	const v = formatter('hour', 'en-GB', tz, { hour: '2-digit', hour12: false }).format(instant);
 	// en-GB renders midnight as "24" in some engines; normalise it.
 	return Number(v) % 24;
 }
@@ -86,12 +110,10 @@ export function groupByDay(slots: Date[], tz: string): DayGroup[] {
 		if (!g) {
 			g = {
 				date,
-				weekday: new Intl.DateTimeFormat(undefined, { timeZone: tz, weekday: 'short' }).format(s),
-				dayLabel: new Intl.DateTimeFormat(undefined, {
-					timeZone: tz,
-					month: 'short',
-					day: 'numeric'
-				}).format(s),
+				weekday: formatter('weekday', undefined, tz, { weekday: 'short' }).format(s),
+				dayLabel: formatter('day-label', undefined, tz, { month: 'short', day: 'numeric' }).format(
+					s
+				),
 				blocks: { morning: [], afternoon: [], evening: [] }
 			};
 			byDate.set(date, g);
@@ -104,11 +126,9 @@ export function groupByDay(slots: Date[], tz: string): DayGroup[] {
 
 /** Renders a slot's start time in the viewer's zone, e.g. "9:30 am". */
 export function slotLabel(instant: Date, tz: string): string {
-	return new Intl.DateTimeFormat(undefined, {
-		timeZone: tz,
-		hour: 'numeric',
-		minute: '2-digit'
-	}).format(instant);
+	return formatter('slot-label', undefined, tz, { hour: 'numeric', minute: '2-digit' }).format(
+		instant
+	);
 }
 
 /** Tier vocabulary shared with the server. */

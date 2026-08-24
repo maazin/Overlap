@@ -163,6 +163,20 @@ type SlotScore struct {
 // on real data; a slot with outstanding required answers is scored on what is
 // known so far and flagged through Unknown.
 func ScoreSlot(start time.Time, ps []Participant, rs Responses, cfg Config) SlotScore {
+	return scoreSlot(start, ps, cfg, rs.get)
+}
+
+// scoreSlot is ScoreSlot's real body, taking the lookup as a function rather
+// than reading rs directly.
+//
+// That indirection is what lets the dominance bound computations (boundAll,
+// and the per-participant pin in relevantNonResponders) evaluate a slot
+// against a hypothetical completion of the unknowns without first building a
+// filled copy of the whole response matrix. Rank's ordinary path passes
+// rs.get and behaves exactly as before; ScoreSlot's public signature and
+// behaviour are unchanged, so every test written against it stays a valid
+// regression guard for this refactor.
+func scoreSlot(start time.Time, ps []Participant, cfg Config, get func(pid string, at time.Time) (Tier, bool)) SlotScore {
 	s := SlotScore{Start: start, Total: len(ps)}
 
 	var (
@@ -173,7 +187,7 @@ func ScoreSlot(start time.Time, ps []Participant, rs Responses, cfg Config) Slot
 	)
 
 	for _, p := range ps {
-		tier, answered := rs.get(p.ID, start)
+		tier, answered := get(p.ID, start)
 
 		if !answered {
 			s.Unknown = append(s.Unknown, p.Name)
@@ -254,6 +268,32 @@ type HistoryAffinity func(slot time.Time) float64
 // retained but sort last, because the UI needs to explain why they died.
 func Rank(slots []time.Time, ps []Participant, rs Responses, cfg Config) []SlotScore {
 	return RankWithHistory(slots, ps, rs, cfg, nil)
+}
+
+// leaderOf finds the current front-runner without ranking and sorting every
+// slot, the way Rank does. Analyze only ever needs the single best slot's
+// start time, not the full ordered list and its per-slot Excludes/Unknown
+// slices Rank builds and immediately discards but for one element.
+//
+// slots is iterated in the order the caller supplies it, which is always
+// chronological (it comes straight from the event's window expansion), and
+// strict-greater-only updates the leader on ties, so the earliest slot wins a
+// tie exactly as Rank's own start-time tiebreak does -- without history, since
+// Analyze has never taken a HistoryAffinity and this preserves that.
+func leaderOf(slots []time.Time, ps []Participant, rs Responses, cfg Config) (time.Time, bool) {
+	var best SlotScore
+	found := false
+	for _, s := range slots {
+		sc := ScoreSlot(s, ps, rs, cfg)
+		if sc.Eliminated {
+			continue
+		}
+		if !found || sc.Score > best.Score {
+			best = sc
+			found = true
+		}
+	}
+	return best.Start, found
 }
 
 // RankWithHistory is Rank with a group's scheduling habits as a tiebreak.
@@ -391,9 +431,8 @@ type Dominance struct {
 func Analyze(slots []time.Time, ps []Participant, rs Responses, cfg Config) Dominance {
 	var d Dominance
 
-	current := Rank(slots, ps, rs, cfg)
-	if len(current) > 0 && !current[0].Eliminated {
-		d.Leader = current[0].Start
+	if leader, ok := leaderOf(slots, ps, rs, cfg); ok {
+		d.Leader = leader
 	}
 
 	// A required participant with any unanswered slot can still veto anything.
@@ -443,30 +482,48 @@ func Analyze(slots []time.Time, ps []Participant, rs Responses, cfg Config) Domi
 	return d
 }
 
-// boundAll scores every slot with all unknown responses pinned to fill.
+// boundAll scores every slot with every unknown response pinned to fill.
+//
+// This reads directly against rs through a closure rather than first building
+// a filled copy of the whole response matrix. Materializing that copy was the
+// actual cost here: for a mid-size poll, dominance analysis calls this dozens
+// of times per request, and each of the old copies allocated a map per
+// participant and inserted an entry per slot -- work an O(1) lookup closure
+// does without allocating anything.
 func boundAll(slots []time.Time, ps []Participant, rs Responses, cfg Config, fill Tier) map[time.Time]SlotScore {
-	filled := fillUnknowns(slots, ps, rs, nil, fill)
+	get := func(pid string, at time.Time) (Tier, bool) {
+		if t, ok := rs.get(pid, at); ok {
+			return t, true
+		}
+		return fill, true
+	}
 	out := make(map[time.Time]SlotScore, len(slots))
 	for _, s := range slots {
-		out[s] = ScoreSlot(s, ps, filled, cfg)
+		out[s] = scoreSlot(s, ps, cfg, get)
 	}
 	return out
 }
 
-// fillUnknowns returns a copy of rs with every missing answer set to fill. When
-// only is non-nil, only that participant's gaps are filled.
-func fillUnknowns(slots []time.Time, ps []Participant, rs Responses, only *string, fill Tier) Responses {
-	out := make(Responses, len(ps))
-	for _, p := range ps {
-		bySlot := make(map[time.Time]Tier, len(slots))
-		for _, s := range slots {
-			if t, ok := rs.get(p.ID, s); ok {
-				bySlot[s] = t
-			} else if only == nil || *only == p.ID {
-				bySlot[s] = fill
-			}
+// boundAllPinned is boundAll with one participant's still-unknown slots fixed
+// to pin, used to ask "what if this specific person's uncertainty resolved
+// one particular way". Everyone else's unknowns still resolve to fill, exactly
+// as in boundAll. A slot the pinned participant has actually answered keeps
+// their real answer -- the pin only stands in for what they have not said.
+func boundAllPinned(
+	slots []time.Time, ps []Participant, rs Responses, cfg Config, fill Tier, pinID string, pin Tier,
+) map[time.Time]SlotScore {
+	get := func(pid string, at time.Time) (Tier, bool) {
+		if t, ok := rs.get(pid, at); ok {
+			return t, true
 		}
-		out[p.ID] = bySlot
+		if pid == pinID {
+			return pin, true
+		}
+		return fill, true
+	}
+	out := make(map[time.Time]SlotScore, len(slots))
+	for _, s := range slots {
+		out[s] = scoreSlot(s, ps, cfg, get)
 	}
 	return out
 }
@@ -503,9 +560,8 @@ func relevantNonResponders(slots []time.Time, ps []Participant, rs Responses, cf
 			continue
 		}
 
-		id := p.ID
-		worst := possibleWinners(slots, ps, fillUnknowns(slots, ps, rs, &id, TierNo), cfg)
-		best := possibleWinners(slots, ps, fillUnknowns(slots, ps, rs, &id, TierPreferred), cfg)
+		worst := possibleWinnersPinned(slots, ps, rs, cfg, p.ID, TierNo)
+		best := possibleWinnersPinned(slots, ps, rs, cfg, p.ID, TierPreferred)
 
 		if !sameSet(worst, best) || !sameSet(asThingsStand, worst) || !sameSet(asThingsStand, best) {
 			out = append(out, p.Name)
@@ -519,7 +575,24 @@ func relevantNonResponders(slots []time.Time, ps []Participant, rs Responses, cf
 func possibleWinners(slots []time.Time, ps []Participant, rs Responses, cfg Config) map[time.Time]bool {
 	lo := boundAll(slots, ps, rs, cfg, TierNo)
 	hi := boundAll(slots, ps, rs, cfg, TierPreferred)
+	return winnersFrom(slots, lo, hi)
+}
 
+// possibleWinnersPinned is possibleWinners with one participant's remaining
+// uncertainty fixed to a single hypothetical answer in both bounds, so the
+// only thing left varying between lo and hi is everyone else's uncertainty.
+func possibleWinnersPinned(
+	slots []time.Time, ps []Participant, rs Responses, cfg Config, pinID string, pin Tier,
+) map[time.Time]bool {
+	lo := boundAllPinned(slots, ps, rs, cfg, TierNo, pinID, pin)
+	hi := boundAllPinned(slots, ps, rs, cfg, TierPreferred, pinID, pin)
+	return winnersFrom(slots, lo, hi)
+}
+
+// winnersFrom is the actual "could this still win" test shared by both bound
+// computations above: a slot could still finish first if no rival's best case
+// beats its own worst case.
+func winnersFrom(slots []time.Time, lo, hi map[time.Time]SlotScore) map[time.Time]bool {
 	winners := make(map[time.Time]bool)
 	for i, s := range slots {
 		if hi[s].Eliminated {

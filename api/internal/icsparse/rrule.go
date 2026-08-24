@@ -104,6 +104,40 @@ func expand(base Interval, r rule, exdates map[int64]bool, from, to time.Time) [
 
 	var out []Interval
 	emitted := 0
+	cur := base.Start
+
+	// Fast-forward past occurrences that end before the window, in one
+	// calendar-arithmetic jump rather than one `advance` per occurrence.
+	//
+	// The stepping loop below is bounded by maxOccurrences so a pathological
+	// rule cannot spin forever, but that bound is a step count, not a date. An
+	// uncounted daily series that began years before the window burns its
+	// whole budget walking through history and never reaches [from, to) --
+	// silently reporting the person free during a meeting they attend every
+	// day. Raising the bound only moves where a sufficiently old series still
+	// loses; jumping there directly sidesteps the problem instead.
+	//
+	// Restricted to the case that actually needs it. A COUNT-bounded series
+	// can never hit this bug in the first place: the loop already exits after
+	// `count` occurrences regardless of how far cur has to travel, which is a
+	// small, fixed number of steps no matter the window's distance. BYDAY
+	// series interleave several occurrences per week and are rare and fiddly
+	// enough to get exactly right here that they keep the original path.
+	if r.count == 0 && len(r.byDay) == 0 {
+		if pd := periodDuration(r); pd > 0 {
+			if gap := from.Sub(cur); gap > pd {
+				// A few periods short on purpose, so the correction loop below
+				// -- unchanged, and already correct -- still walks through the
+				// final approach and picks up any EXDATE in that stretch
+				// exactly as it always has.
+				if n := int(gap/pd) - 3; n > 0 {
+					if jumped := advanceBy(cur, r, n); jumped.After(cur) {
+						cur = jumped
+					}
+				}
+			}
+		}
+	}
 
 	emit := func(start time.Time) bool {
 		if exdates[start.UnixNano()] {
@@ -116,7 +150,6 @@ func expand(base Interval, r rule, exdates map[int64]bool, from, to time.Time) [
 		return true
 	}
 
-	cur := base.Start
 	for step := 0; step < maxOccurrences; step++ {
 		if !r.until.IsZero() && cur.After(r.until) {
 			break
@@ -183,4 +216,41 @@ func advance(t time.Time, r rule) (time.Time, bool) {
 		return t.AddDate(r.interval, 0, 0), true
 	}
 	return t, false
+}
+
+// periodDuration is an approximate real-time length of one period, used only
+// to estimate how many periods to skip before expand's correction loop takes
+// over and finishes the approach exactly. Month and year lengths vary, so
+// these are averages, not calendar truth -- the same reason advance always
+// uses AddDate rather than a fixed duration for the actual occurrences.
+func periodDuration(r rule) time.Duration {
+	const day = 24 * time.Hour
+	switch r.freq {
+	case "DAILY":
+		return time.Duration(r.interval) * day
+	case "WEEKLY":
+		return time.Duration(r.interval) * 7 * day
+	case "MONTHLY":
+		return time.Duration(r.interval) * 30 * day
+	case "YEARLY":
+		return time.Duration(r.interval) * 365 * day
+	}
+	return 0
+}
+
+// advanceBy jumps n whole periods in one calendar-arithmetic call, the same
+// way advance jumps one, so a series that began long before the window can be
+// fast-forwarded without a loop proportional to its age.
+func advanceBy(t time.Time, r rule, n int) time.Time {
+	switch r.freq {
+	case "DAILY":
+		return t.AddDate(0, 0, r.interval*n)
+	case "WEEKLY":
+		return t.AddDate(0, 0, 7*r.interval*n)
+	case "MONTHLY":
+		return t.AddDate(0, r.interval*n, 0)
+	case "YEARLY":
+		return t.AddDate(r.interval*n, 0, 0)
+	}
+	return t
 }

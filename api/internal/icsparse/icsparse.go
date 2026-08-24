@@ -18,6 +18,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/maazin/Overlap/api/internal/tz"
 )
 
 // Interval is a half-open span during which someone is committed.
@@ -299,7 +301,11 @@ func parseTime(p property) (t time.Time, allDay bool, ok bool) {
 
 	loc := time.UTC
 	if tzid := p.params["TZID"]; tzid != "" {
-		if l, err := time.LoadLocation(tzid); err == nil {
+		// tz.Load rather than time.LoadLocation directly: it memoises the
+		// zoneinfo lookup, and a feed carries the same TZID on every one of
+		// its events, so an unrecurring calendar with thousands of entries
+		// would otherwise re-parse the same zone file thousands of times.
+		if l, err := tz.Load(tzid); err == nil {
 			loc = l
 		}
 		// An unknown TZID falls back to UTC rather than dropping the event.

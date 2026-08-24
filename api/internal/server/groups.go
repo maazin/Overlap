@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -441,29 +442,75 @@ func (s *Server) computeGroupProposal(r *http.Request, groupID string, ev store.
 	window := exp.Starts[0]
 	last := exp.Starts[len(exp.Starts)-1].Add(time.Duration(ev.SlotMinutes) * time.Minute)
 
-	pmembers := make([]proposal.Member, 0, len(members))
+	connected := make([]store.GroupMember, 0, len(members))
 	for _, m := range members {
-		if m.CalendarSource != store.CalendarICS {
-			continue
+		if m.CalendarSource == store.CalendarICS {
+			connected = append(connected, m)
 		}
-		blocks, err := s.refreshGroupMemberCalendar(r, m, window, last)
-		if err != nil {
-			s.log.InfoContext(r.Context(), "proposal: refresh failed, excluding member", "member", m.DisplayName, "err", err)
-			continue
+	}
+	if len(connected) == 0 {
+		return proposal.Result{}, nil
+	}
+
+	// Fetched concurrently, because these are independent calls to other
+	// people's calendar hosts and this runs inside an interactive request.
+	// Serially, each member costs a fresh DNS lookup, TCP connect and TLS
+	// handshake against a server we do not control, up to fetchguard.Timeout
+	// each; a group of ten turned "create an event" into a minute-plus wait in
+	// the worst case. Concurrently the whole step costs roughly one fetch.
+	results := make([]proposal.Member, len(connected))
+	ok := make([]bool, len(connected))
+
+	var wg sync.WaitGroup
+	// Bounded so a large group cannot open an unlimited number of outbound
+	// connections at once. Concurrency is the fix here; unbounded concurrency
+	// would just be a different resource problem.
+	sem := make(chan struct{}, maxConcurrentCalendarFetches)
+
+	for i, m := range connected {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			blocks, err := s.refreshGroupMemberCalendar(r, m, window, last)
+			if err != nil {
+				s.log.InfoContext(r.Context(), "proposal: refresh failed, excluding member",
+					"member", m.DisplayName, "err", err)
+				return
+			}
+			// icsparse.Parse returns nil for "checked, found nothing", the same
+			// zero value proposal.Member uses for "never checked". A refresh
+			// that succeeded but found no conflicts must still mark this member
+			// as connected, or a genuinely clear calendar gets silently treated
+			// as an absent one and dropped from its own proposal.
+			if blocks == nil {
+				blocks = []icsparse.Interval{}
+			}
+			results[i] = proposal.Member{ID: m.ID, Name: m.DisplayName, Busy: blocks}
+			ok[i] = true
+		}()
+	}
+	wg.Wait()
+
+	// Collected in the original member order rather than completion order, so
+	// a proposal does not depend on which calendar host happened to answer
+	// first. Each goroutine writes only its own index, so no lock is needed.
+	pmembers := make([]proposal.Member, 0, len(connected))
+	for i := range connected {
+		if ok[i] {
+			pmembers = append(pmembers, results[i])
 		}
-		// icsparse.Parse returns nil for "checked, found nothing", the same
-		// zero value proposal.Member uses for "never checked". A refresh that
-		// succeeded but found no conflicts must still mark this member as
-		// connected, or a genuinely clear calendar gets silently treated as an
-		// absent one and dropped from its own proposal.
-		if blocks == nil {
-			blocks = []icsparse.Interval{}
-		}
-		pmembers = append(pmembers, proposal.Member{ID: m.ID, Name: m.DisplayName, Busy: blocks})
 	}
 
 	return proposal.Best(exp.Starts, time.Duration(ev.SlotMinutes)*time.Minute, pmembers), nil
 }
+
+// maxConcurrentCalendarFetches bounds the fan-out above. Eight is comfortably
+// more than a typical group's connected members while still being a hard
+// ceiling on outbound sockets per proposal.
+const maxConcurrentCalendarFetches = 8
 
 // refreshGroupMemberCalendar re-fetches a member's stored feed URL against a
 // specific window. It does not touch what is cached for connect-time display;

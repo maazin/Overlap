@@ -55,17 +55,31 @@ export function detectTimezone(): string {
 	}
 }
 
-/** Every IANA zone the browser knows, for the manual override picker. */
+/**
+ * Every IANA zone the browser knows, for the manual override picker.
+ *
+ * Computed once and cached: supportedValuesOf('timeZone') enumerates several
+ * hundred names, and the result cannot change during a session, so recomputing
+ * it on every render of the picker (three separate pages render one) buys
+ * nothing.
+ */
+let timezonesCache: string[] | null = null;
+
 export function allTimezones(): string[] {
+	if (timezonesCache) return timezonesCache;
+
 	try {
 		const supported = (
 			Intl as unknown as { supportedValuesOf?: (k: string) => string[] }
 		).supportedValuesOf?.('timeZone');
-		if (supported?.length) return supported;
+		if (supported?.length) {
+			timezonesCache = supported;
+			return supported;
+		}
 	} catch {
 		/* fall through */
 	}
-	return [detectTimezone(), 'UTC'];
+	return (timezonesCache = [detectTimezone(), 'UTC']);
 }
 
 /**
