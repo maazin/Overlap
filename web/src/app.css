@@ -66,6 +66,11 @@
   --ink-muted: #5f5a53;
   --ink-faint: #8a837a;
   --on-accent: #f6f4f0;
+  /* Text on a deep ground. Stays light in both schemes, because the ground it
+     sits on is dark in both: defining it only under prefers-color-scheme would
+     leave it undefined in light mode, and the var() would silently fall back to
+     inherited ink on a pine fill. */
+  --on-deep: #eef3ef;
 
   --hairline: #e5e0d8;
   --hairline-strong: #d5cec3;
