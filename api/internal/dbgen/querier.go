@@ -20,6 +20,16 @@ type Querier interface {
 	CreateParticipantFromGroupMember(ctx context.Context, arg CreateParticipantFromGroupMemberParams) (Participant, error)
 	DecideEvent(ctx context.Context, arg DecideEventParams) (Event, error)
 	DeleteBusyBlocks(ctx context.Context, participantID pgtype.UUID) error
+	// Deletes rather than tombstones. The privacy note in the README promises the
+	// data goes away when the link expires, and a row marked 'expired' still holds
+	// every name and every busy interval. Participants, responses and busy blocks
+	// follow through `on delete cascade`; groups survive, because both references
+	// into events are `on delete set null`.
+	//
+	// The limit bounds one pass so a first sweep over a long-neglected table
+	// cannot hold a transaction open across millions of rows. The caller loops
+	// until a pass comes back short.
+	DeleteExpiredEvents(ctx context.Context, limit int32) (int64, error)
 	DeleteGroupMemberBusyBlocks(ctx context.Context, groupMemberID pgtype.UUID) error
 	DeleteResponsesForParticipant(ctx context.Context, participantID pgtype.UUID) error
 	GetEventBySlug(ctx context.Context, slug string) (Event, error)

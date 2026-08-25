@@ -22,7 +22,21 @@ type Config struct {
 
 	// WebURL is where the SvelteKit app lives. The API needs it to write a
 	// link back to the event into the downloaded calendar entry.
+	//
+	// It has a working default so `go run ./cmd/api` needs no setup, which
+	// also means forgetting it in production is silent: the .ics still
+	// downloads and still imports, carrying a link to localhost. Deployment
+	// docs call it out for that reason.
 	WebURL string
+
+	// RunMigrations applies pending migrations at startup. On by default,
+	// because the alternative for this deployment shape is a schema nobody
+	// migrated and a liveness probe too shallow to notice.
+	RunMigrations bool
+
+	// PurgeInterval is how often expired events are swept. Zero disables the
+	// sweeper entirely.
+	PurgeInterval time.Duration
 
 	ShutdownTimeout time.Duration
 }
@@ -38,6 +52,8 @@ func ConfigFromEnv() Config {
 		WebURL:         strings.TrimRight(env("WEB_URL", "http://localhost:5173"), "/"),
 
 		AllowPrivateCalendarHosts: env("ALLOW_PRIVATE_CALENDAR_HOSTS", "") == "true",
+		RunMigrations:             env("RUN_MIGRATIONS", "true") != "false",
+		PurgeInterval:             duration("PURGE_INTERVAL", 6*time.Hour),
 		ShutdownTimeout:           15 * time.Second,
 	}
 }
@@ -47,6 +63,22 @@ func env(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// duration reads a Go duration string, falling back rather than failing. A
+// malformed value is logged nowhere and ignored here on purpose: this is a
+// sweep cadence, and refusing to boot over it would trade a small
+// misconfiguration for an outage.
+func duration(key string, fallback time.Duration) time.Duration {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d < 0 {
+		return fallback
+	}
+	return d
 }
 
 func splitList(s string) []string {

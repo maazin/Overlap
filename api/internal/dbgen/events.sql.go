@@ -154,6 +154,33 @@ func (q *Queries) DecideEvent(ctx context.Context, arg DecideEventParams) (Event
 	return i, err
 }
 
+const deleteExpiredEvents = `-- name: DeleteExpiredEvents :execrows
+delete from events
+where id in (
+    select id from events
+    where expires_at < now()
+    order by expires_at
+    limit $1
+)
+`
+
+// Deletes rather than tombstones. The privacy note in the README promises the
+// data goes away when the link expires, and a row marked 'expired' still holds
+// every name and every busy interval. Participants, responses and busy blocks
+// follow through `on delete cascade`; groups survive, because both references
+// into events are `on delete set null`.
+//
+// The limit bounds one pass so a first sweep over a long-neglected table
+// cannot hold a transaction open across millions of rows. The caller loops
+// until a pass comes back short.
+func (q *Queries) DeleteExpiredEvents(ctx context.Context, limit int32) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteExpiredEvents, limit)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getEventBySlug = `-- name: GetEventBySlug :one
 select id, slug, title, organizer_tz, window_start, window_end, day_start, day_end, slot_minutes, status, decided_slot_start, created_at, expires_at, group_id, decided_at from events where slug = $1
 `

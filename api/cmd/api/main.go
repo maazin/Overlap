@@ -19,6 +19,7 @@ import (
 	// one is a dependency that fails silently and totally.
 	_ "time/tzdata"
 
+	"github.com/maazin/Overlap/api/internal/migrate"
 	"github.com/maazin/Overlap/api/internal/server"
 	"github.com/maazin/Overlap/api/internal/store"
 	"github.com/maazin/Overlap/api/internal/tz"
@@ -56,6 +57,15 @@ func run(logger *slog.Logger) error {
 		return errors.New("DATABASE_URL is not set")
 	}
 
+	// Before the pool, before the listener. A schema that is behind the binary
+	// is a startup failure the deploy surfaces, rather than a healthy-looking
+	// machine serving 500s to everyone.
+	if cfg.RunMigrations {
+		if err := migrate.Up(ctx, cfg.DatabaseURL, logger); err != nil {
+			return err
+		}
+	}
+
 	// Connecting before listening means a bad database URL is a startup
 	// failure the deploy will show, not a 500 on the first real request.
 	st, err := store.New(ctx, cfg.DatabaseURL)
@@ -63,6 +73,12 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("connect store: %w", err)
 	}
 	defer st.Close()
+
+	// Started after the store and stopped before it. Defers unwind in reverse,
+	// so stopPurge runs ahead of st.Close and an in-flight delete finishes
+	// against a pool that is still open.
+	stopPurge := startPurge(ctx, st, cfg.PurgeInterval, logger)
+	defer stopPurge()
 
 	srv := &http.Server{
 		Addr:    cfg.Addr,

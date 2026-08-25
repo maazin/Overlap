@@ -3,10 +3,19 @@
 # First deploy:
 #   fly apps create overlap-api
 #   fly postgres create --name overlap-db      # then: fly postgres attach overlap-db
-#   fly secrets set ALLOWED_ORIGINS=https://<your-vercel-domain>
+#   fly secrets set ALLOWED_ORIGINS=https://<your-vercel-domain> \
+#                   WEB_URL=https://<your-vercel-domain>
 #   fly deploy
 #
 # `fly postgres attach` sets DATABASE_URL for you; do not set it by hand.
+#
+# Both secrets above matter and fail differently. A missing ALLOWED_ORIGINS is
+# loud: every browser request fails CORS immediately. A missing WEB_URL is
+# silent: the API falls back to localhost and writes that into the URL field of
+# every downloaded .ics, which still downloads and still imports.
+#
+# Migrations run at startup from inside the binary, so there is no release
+# command here and no goose in this image. See internal/migrate.
 
 app = 'overlap-api'
 primary_region = 'iad'

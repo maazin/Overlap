@@ -161,14 +161,36 @@ Both halves deploy independently. Do the API first — the web app needs its URL
 cd api
 fly apps create overlap-api
 fly postgres create --name overlap-db && fly postgres attach overlap-db
-fly secrets set ALLOWED_ORIGINS=https://<your-vercel-domain>
+fly secrets set ALLOWED_ORIGINS=https://<your-vercel-domain> WEB_URL=https://<your-vercel-domain>
 fly deploy
 ```
 
-`fly postgres attach` sets `DATABASE_URL` itself. The image is a 9 MB `scratch`
+`fly postgres attach` sets `DATABASE_URL` itself. The image is a small `scratch`
 build; it carries the CA bundle and Go's zoneinfo database explicitly, because
 without zoneinfo every `time.LoadLocation` call fails and the entire slot model
 breaks in a way that never shows up locally.
+
+Both secrets above are required and fail differently. `ALLOWED_ORIGINS` failing
+is loud, since every browser request is refused at once. `WEB_URL` failing is
+silent: it falls back to `http://localhost:5173` and writes that into the URL
+field of every downloaded `.ics`, which still downloads and still imports.
+
+**Migrations** run at startup, inside the API process, before the listener
+opens. There is no release command and no goose binary in the image. The
+reasoning is in `internal/migrate`: `/api/health` is a liveness probe that
+never touches the database, so a deploy against an unmigrated schema would
+report healthy while every real request failed. A startup error is the version
+of that failure a deploy can actually show you.
+
+A concurrent-safe advisory lock guards the run, so two machines starting at
+once cannot both apply the same migration. `RUN_MIGRATIONS=false` turns it off
+if something else owns the schema, and `go run ./cmd/migrate` applies pending
+migrations without starting a server.
+
+**Expired events** are deleted by a sweep inside the API, every
+`PURGE_INTERVAL` (6h by default, `0` to disable). Participants, responses and
+busy blocks follow through `on delete cascade`; groups survive, because
+graduation exists precisely so a group outlives the event that made it.
 
 **Web → Vercel**
 
@@ -178,6 +200,33 @@ build; pin `@sveltejs/adapter-vercel` if you would rather not rely on detection.
 
 `ALLOWED_ORIGINS` on the API must list the Vercel origin exactly, scheme
 included, or the browser fetch fails CORS while curl keeps working.
+
+**Before you deploy**
+
+Decide the rollback rule in advance, because deciding it mid-incident is how a
+bad deploy stays up.
+
+```bash
+fly releases                  # find the version you were on
+fly deploy --image <previous> # or: fly releases rollback
+```
+
+Roll back on any of these:
+
+- `/api/health` failing after the grace period, which means the process is not
+  coming up at all.
+- Startup logs showing a migration error. The schema is the one thing a rollback
+  does not undo; a migration that failed halfway needs `make migrate-down`
+  against the production URL before the older image will run.
+- Errors on `PUT /responses` or `GET /solve`, the two paths every user hits.
+- The results page going quiet. SSE failures are invisible from the server side,
+  so watch a real event rather than a metric.
+
+The SSE broker is in-process. `min_machines_running = 1` with
+`auto_stop_machines = 'off'` is what keeps that correct: at two machines, a
+response saved on one never reaches watchers on the other, and it fails
+silently because the heartbeat keeps flowing. Move the broker to Postgres
+`LISTEN/NOTIFY` before scaling out.
 
 ## Conventions
 

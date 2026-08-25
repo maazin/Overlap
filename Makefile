@@ -2,9 +2,13 @@
 SHELL := /bin/bash
 
 # Pinned rather than @latest so a migration run is reproducible six months from
-# now. goose is installed into ./bin instead of the api module because it drags
-# in a driver for every database it supports, and none of that belongs in the
-# API's dependency graph.
+# now.
+#
+# Keep GOOSE_VERSION in step with the goose version in api/go.mod. The API
+# embeds the migrations and applies them at startup through the same library,
+# so these two are the same tool reading the same goose_db_version table. The
+# CLI stays here because `create`, `down` and `status` have no server-side
+# equivalent and no business being reachable from one.
 GOOSE_VERSION := v3.27.3
 SQLC_VERSION  := v1.31.1
 BIN           := $(CURDIR)/bin
@@ -45,7 +49,7 @@ db-reset: ## Destroy the database volume and start clean
 	docker compose down -v && $(MAKE) db-up && $(MAKE) migrate
 
 .PHONY: migrate
-migrate: $(GOOSE) ## Apply all pending migrations
+migrate: $(GOOSE) ## Apply all pending migrations (the API also does this at startup)
 	$(GOOSE) -dir $(MIGRATIONS) postgres "$(DATABASE_URL)" up
 
 .PHONY: migrate-down

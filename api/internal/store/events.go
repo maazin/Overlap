@@ -290,3 +290,38 @@ func decodeEvent(row dbgen.Event) (Event, error) {
 	}
 	return e, nil
 }
+
+// purgeBatch bounds one delete statement. Large enough that an ordinary sweep
+// finishes in a single pass, small enough that the first sweep over a table
+// nobody has ever swept does not hold one transaction open over everything.
+const purgeBatch = 500
+
+// PurgeExpired deletes events whose links have expired and reports how many
+// went. It loops until a pass comes back short, so a backlog drains in one
+// call without any single statement being unbounded.
+//
+// Cascades do the rest: participants, responses and busy blocks belong to an
+// event and go with it. Groups deliberately do not, since a group outliving
+// the event that created it is the entire point of graduation.
+func (s *Store) PurgeExpired(ctx context.Context) (int64, error) {
+	var total int64
+	for {
+		n, err := s.q.DeleteExpiredEvents(ctx, purgeBatch)
+		if err != nil {
+			// Whatever was already deleted stays deleted; reporting the count
+			// alongside the error keeps the log honest about that.
+			return total, fmt.Errorf("delete expired events: %w", err)
+		}
+		total += n
+		if n < purgeBatch {
+			return total, nil
+		}
+		// Cooperative: a long backlog should not monopolise a connection or
+		// ignore a shutdown signal.
+		select {
+		case <-ctx.Done():
+			return total, ctx.Err()
+		default:
+		}
+	}
+}

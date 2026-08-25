@@ -1,0 +1,99 @@
+name: CI
+
+# Pull requests and pushes to main. Nothing here deploys; Fly and Vercel own
+# that, and a pipeline that can deploy is a pipeline that can deploy by
+# accident.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A second push to the same branch cancels the first. The interesting answer is
+# always about the newest commit.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api:
+    name: API
+    runs-on: ubuntu-latest
+
+    # The integration tests need a real Postgres, and they are the only place
+    # the date, time and timestamptz round trips are actually exercised.
+    # Skipping them in CI would leave the layer most likely to break silently
+    # covered only on somebody's laptop.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: overlap
+          POSTGRES_PASSWORD: overlap
+          POSTGRES_DB: overlap
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U overlap"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://overlap:overlap@localhost:5432/overlap?sslmode=disable
+      TEST_DATABASE_URL: postgres://overlap:overlap@localhost:5432/overlap?sslmode=disable
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: api/go.mod
+          cache-dependency-path: api/go.sum
+
+      - name: gofmt
+        working-directory: api
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        working-directory: api
+        run: go vet ./...
+
+      # Applied by the binary the same way production applies them, which makes
+      # this a real test of the startup path rather than only of the SQL.
+      - name: Migrate
+        working-directory: api
+        run: go run ./cmd/migrate
+
+      - name: Test
+        working-directory: api
+        run: go test -race -count=1 ./...
+
+  web:
+    name: Web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        working-directory: web
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: web
+        run: npm run check
+
+      - name: Build
+        working-directory: web
+        run: npm run build
