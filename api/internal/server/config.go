@@ -2,6 +2,7 @@ package server
 
 import (
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -38,6 +39,29 @@ type Config struct {
 	// sweeper entirely.
 	PurgeInterval time.Duration
 
+	// ClientIPHeader names the header carrying the real client address.
+	//
+	// Empty by default, which means the socket address is used. That default
+	// is the safe one: trusting a header nobody upstream overwrites lets a
+	// client hand itself a fresh rate limit bucket per request. Set it only
+	// when a proxy in front of this server rewrites it on every request, which
+	// on Fly is Fly-Client-IP.
+	ClientIPHeader string
+
+	// RateLimitBurst is how many requests one address may make at once, and
+	// RateLimitPerMinute the sustained rate it refills at. Zero per-minute
+	// disables limiting.
+	RateLimitBurst     int
+	RateLimitPerMinute float64
+
+	// RateLimitMaxKeys caps how many addresses are tracked. Untrusted input
+	// keys that map, so it needs a ceiling.
+	RateLimitMaxKeys int
+
+	// ProposalCooldown is how long a computed group proposal is reused before
+	// the calendars behind it are refreshed again. Zero recomputes every time.
+	ProposalCooldown time.Duration
+
 	ShutdownTimeout time.Duration
 }
 
@@ -54,7 +78,20 @@ func ConfigFromEnv() Config {
 		AllowPrivateCalendarHosts: env("ALLOW_PRIVATE_CALENDAR_HOSTS", "") == "true",
 		RunMigrations:             env("RUN_MIGRATIONS", "true") != "false",
 		PurgeInterval:             duration("PURGE_INTERVAL", 6*time.Hour),
-		ShutdownTimeout:           15 * time.Second,
+
+		ClientIPHeader: os.Getenv("CLIENT_IP_HEADER"),
+
+		// Sized for the shape of real use rather than for a guess at a limit.
+		// Answering a poll is a handful of writes spread over a minute or two,
+		// and a household or office behind one address multiplies that by a
+		// few people. Twenty at once with sixty a minute leaves that
+		// comfortable while making automated abuse pointless.
+		RateLimitBurst:     intEnv("RATE_LIMIT_BURST", 20),
+		RateLimitPerMinute: floatEnv("RATE_LIMIT_PER_MINUTE", 60),
+		RateLimitMaxKeys:   intEnv("RATE_LIMIT_MAX_KEYS", 20000),
+
+		ProposalCooldown: duration("PROPOSAL_COOLDOWN", 30*time.Second),
+		ShutdownTimeout:  15 * time.Second,
 	}
 }
 
@@ -79,6 +116,30 @@ func duration(key string, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return d
+}
+
+func intEnv(key string, fallback int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		return fallback
+	}
+	return n
+}
+
+func floatEnv(key string, fallback float64) float64 {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil || f < 0 {
+		return fallback
+	}
+	return f
 }
 
 func splitList(s string) []string {

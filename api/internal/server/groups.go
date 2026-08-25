@@ -552,7 +552,12 @@ func (s *Server) handleGroupProposal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	prop, err := s.computeGroupProposal(r, g.ID, ev)
+	// Through the cache rather than straight to the computation. This route
+	// takes no token, and one call fans out to every connected member's
+	// calendar, so an uncached path here is an open request amplifier.
+	prop, err := s.proposals.Do(ev.ID, func() (proposal.Result, error) {
+		return s.computeGroupProposal(r, g.ID, ev)
+	})
 	if err != nil {
 		s.log.ErrorContext(r.Context(), "compute proposal", "err", err)
 		s.writeError(w, r, http.StatusInternalServerError, "could not compute a proposal")

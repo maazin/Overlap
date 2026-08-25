@@ -116,6 +116,22 @@ func TestCORSAllowsEveryTokenHeaderTheAPIRequires(t *testing.T) {
 	}
 }
 
+// TestCORSExposesRetryAfter is the same failure in the other direction.
+// Response headers are hidden from cross-origin JavaScript unless the server
+// names them, so a Retry-After the client cannot read is advice it cannot
+// take, and nothing about the request looks wrong when it happens.
+func TestCORSExposesRetryAfter(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+	req.Header.Set("Origin", "http://localhost:5173")
+	rec := httptest.NewRecorder()
+	testServer().Routes().ServeHTTP(rec, req)
+
+	exposed := rec.Header().Get("Access-Control-Expose-Headers")
+	if !strings.Contains(exposed, "Retry-After") {
+		t.Errorf("Access-Control-Expose-Headers = %q, missing Retry-After", exposed)
+	}
+}
+
 // TestPanicIsContained pins the behaviour that one broken handler returns a 500
 // instead of killing the process.
 func TestPanicIsContained(t *testing.T) {

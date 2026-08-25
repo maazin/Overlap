@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/maazin/Overlap/api/internal/fetchguard"
+	"github.com/maazin/Overlap/api/internal/ratelimit"
 	"github.com/maazin/Overlap/api/internal/sse"
 	"github.com/maazin/Overlap/api/internal/store"
 )
@@ -24,6 +25,15 @@ type Server struct {
 	// fetcher retrieves calendar feeds. It is the only thing in the process
 	// that dials a URL a stranger supplied, and it is hardened accordingly.
 	fetcher *fetchguard.Fetcher
+
+	// limiter guards the endpoints that write rows without needing a token.
+	// Nil disables limiting, which is what most tests want.
+	limiter *ratelimit.Limiter
+
+	// proposals collapses concurrent proposal requests for one event and holds
+	// the answer briefly, so the calendar fan-out is bounded by the resource
+	// rather than by how many callers ask for it.
+	proposals *proposalCache
 }
 
 // New returns a Server. It does no IO, so it cannot fail.
@@ -41,14 +51,23 @@ func New(cfg Config, log *slog.Logger, st *store.Store) *Server {
 		fetcher.AllowPrivateForDevelopment()
 	}
 
-	return &Server{
-		cfg:     cfg,
-		log:     log,
-		store:   st,
-		broker:  sse.NewBroker(),
-		fetcher: fetcher,
+	srv := &Server{
+		cfg:       cfg,
+		log:       log,
+		store:     st,
+		broker:    sse.NewBroker(),
+		fetcher:   fetcher,
+		proposals: newProposalCache(cfg.ProposalCooldown),
 	}
+	if cfg.RateLimitPerMinute > 0 {
+		srv.limiter = ratelimit.New(cfg.RateLimitBurst, cfg.RateLimitPerMinute, cfg.RateLimitMaxKeys)
+	}
+	return srv
 }
+
+// Limiter exposes the rate limiter so the process can sweep it on a ticker.
+// Nil when limiting is disabled.
+func (s *Server) Limiter() *ratelimit.Limiter { return s.limiter }
 
 // Routes builds the handler tree. Middleware is applied outermost-first:
 // recoverPanic wraps logRequests wraps cors wraps the mux, so a panic in a
@@ -60,9 +79,11 @@ func (s *Server) Routes() http.Handler {
 	// wildcards read back via r.PathValue. Enough routing for the whole API;
 	// chi arrives only if this stops being true.
 	mux.HandleFunc("GET /api/health", s.handleHealth)
-	mux.HandleFunc("POST /api/events", s.handleCreateEvent)
+	// Rate limited: every one of these writes a row and none of them needs a
+	// token to reach, so they are what an abuser would automate.
+	mux.Handle("POST /api/events", s.rateLimit(http.HandlerFunc(s.handleCreateEvent)))
 	mux.HandleFunc("GET /api/events/{slug}", s.handleGetEvent)
-	mux.HandleFunc("POST /api/events/{slug}/participants", s.handleJoin)
+	mux.Handle("POST /api/events/{slug}/participants", s.rateLimit(http.HandlerFunc(s.handleJoin)))
 	mux.Handle("PUT /api/events/{slug}/responses",
 		s.requireParticipant(http.HandlerFunc(s.handlePutResponses)))
 
@@ -81,11 +102,11 @@ func (s *Server) Routes() http.Handler {
 
 	mux.Handle("POST /api/events/{slug}/graduate",
 		s.requireParticipant(http.HandlerFunc(s.handleGraduate)))
-	mux.HandleFunc("POST /api/events/{slug}/claim", s.handleClaimEventSeat)
+	mux.Handle("POST /api/events/{slug}/claim", s.rateLimit(http.HandlerFunc(s.handleClaimEventSeat)))
 
 	mux.HandleFunc("GET /api/groups/{slug}", s.handleGetGroup)
-	mux.HandleFunc("POST /api/groups/{slug}/members", s.handleJoinGroup)
-	mux.HandleFunc("POST /api/groups/{slug}/members/claim", s.handleClaimGroupMember)
+	mux.Handle("POST /api/groups/{slug}/members", s.rateLimit(http.HandlerFunc(s.handleJoinGroup)))
+	mux.Handle("POST /api/groups/{slug}/members/claim", s.rateLimit(http.HandlerFunc(s.handleClaimGroupMember)))
 	mux.Handle("POST /api/groups/{slug}/calendar/ics",
 		s.requireGroupMember(http.HandlerFunc(s.handleConnectGroupICS)))
 	mux.Handle("DELETE /api/groups/{slug}/calendar",

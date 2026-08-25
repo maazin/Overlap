@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/maazin/Overlap/api/internal/ratelimit"
 	"github.com/maazin/Overlap/api/internal/store"
 )
 
@@ -73,5 +74,45 @@ func sweep(ctx context.Context, st *store.Store, log *slog.Logger) {
 	}
 	if n > 0 {
 		log.Info("expired events purged", "deleted", n)
+	}
+}
+
+// limiterSweepInterval is how often idle rate limit buckets are dropped.
+//
+// Frequent enough that a burst of one-off visitors does not sit in memory for
+// long, rare enough that the sweep itself is invisible. The map also evicts
+// opportunistically when it hits its cap, so this is housekeeping rather than
+// the only thing standing between the process and an unbounded map.
+const limiterSweepInterval = 5 * time.Minute
+
+// startLimiterSweep drops idle buckets on a ticker until ctx ends.
+//
+// Same shape as startPurge: the returned function cancels and waits, so it
+// cannot hang on an exit path that leaves the parent context alive.
+func startLimiterSweep(ctx context.Context, l *ratelimit.Limiter, log *slog.Logger) func() {
+	if l == nil {
+		log.Info("rate limiting disabled")
+		return func() {}
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(limiterSweepInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				l.Sweep()
+			}
+		}
+	}()
+
+	return func() {
+		cancel()
+		<-done
 	}
 }

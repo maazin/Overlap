@@ -80,9 +80,14 @@ func run(logger *slog.Logger) error {
 	stopPurge := startPurge(ctx, st, cfg.PurgeInterval, logger)
 	defer stopPurge()
 
+	api := server.New(cfg, logger, st)
+
+	stopLimiterSweep := startLimiterSweep(ctx, api.Limiter(), logger)
+	defer stopLimiterSweep()
+
 	srv := &http.Server{
 		Addr:    cfg.Addr,
-		Handler: server.New(cfg, logger, st).Routes(),
+		Handler: api.Routes(),
 
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,

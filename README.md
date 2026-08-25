@@ -192,6 +192,34 @@ migrations without starting a server.
 busy blocks follow through `on delete cascade`; groups survive, because
 graduation exists precisely so a group outlives the event that made it.
 
+**Abuse controls** are two mechanisms guarding two different things.
+
+A per-address token bucket covers the endpoints that write rows without
+needing a token: creating an event, joining one, joining a group, and the two
+claim routes. `RATE_LIMIT_BURST` at once, `RATE_LIMIT_PER_MINUTE` sustained,
+`RATE_LIMIT_MAX_KEYS` addresses tracked. It is in-process, so counters reset on
+deploy. That is the intended trade: a limiter backed by Postgres would put a
+write on the hot path of every request against the same small database it is
+protecting, and this enforces no quota anyone paid for, so losing counters on a
+deploy costs nothing an abuser can use.
+
+Set `CLIENT_IP_HEADER` wherever a proxy sits in front. It is empty by default
+because trusting a header nothing upstream overwrites lets a client mint a
+fresh bucket per request, and on Fly it is `Fly-Client-IP`, already set in
+fly.toml. Getting this wrong is quiet in the wrong direction: with no header
+configured behind a proxy, every user shares one bucket.
+
+`GET /api/groups/{slug}/proposal` needs a different control, because it takes
+no token and one call refreshes every connected member's calendar. A per-caller
+limit still lets a hundred addresses each trigger a full fan-out, so the guard
+is keyed on the event instead: a `PROPOSAL_COOLDOWN` window plus single-flight,
+which collapses concurrent callers into one computation. Measured on a running
+server, 100 requests to that endpoint produced 1 outbound calendar fetch.
+
+Neither control stops an attacker who rotates source addresses. That is a
+property of per-address limiting rather than of this implementation, and it is
+why the expensive path is bounded by the resource rather than by the caller.
+
 **Web → Vercel**
 
 Set `PUBLIC_API_URL` to the Fly URL, then deploy `web/`. The project uses

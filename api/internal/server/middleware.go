@@ -76,6 +76,11 @@ func (s *Server) cors(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Participant-Token, X-Member-Token")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			// Response headers are hidden from cross-origin JavaScript unless
+			// named here. Retry-After on a 429 is advice the client cannot act
+			// on if it cannot read it, and the failure is silent: the header
+			// arrives, the browser drops it, and fetch reports nothing wrong.
+			w.Header().Set("Access-Control-Expose-Headers", "Retry-After")
 			w.Header().Set("Access-Control-Max-Age", "600")
 			// Responses vary by Origin, so a shared cache must not serve one
 			// origin's response to another.

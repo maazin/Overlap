@@ -91,6 +91,16 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 		} catch {
 			// A non-JSON error body is not worth a second failure mode.
 		}
+		if (res.status === 429) {
+			// The server sends Retry-After and names it in
+			// Access-Control-Expose-Headers, without which this read returns
+			// null from a cross-origin response. Falling back to the plain
+			// message keeps that from turning into "undefined seconds".
+			const wait = Number(res.headers.get('Retry-After'));
+			if (Number.isFinite(wait) && wait > 0) {
+				msg = `Too many requests. Try again in ${wait === 1 ? 'a second' : `${wait} seconds`}.`;
+			}
+		}
 		throw new APIError(res.status, msg);
 	}
 
