@@ -306,6 +306,28 @@ response saved on one never reaches watchers on the other, and it fails
 silently because the heartbeat keeps flowing. Move the broker to Postgres
 `LISTEN/NOTIFY` before scaling out.
 
+## Analytics
+
+Vercel Web Analytics, injected in the root layout, with a `beforeSend` that is
+load-bearing rather than decorative.
+
+The SvelteKit integration reports the route pattern and the resolved pathname
+together. The pattern is the half worth having: knowing `/e/[slug]` was viewed
+four hundred times is the analytics question. The pathname carries the slug,
+and in this product a slug is a credential, since holding it is what authorises
+reading an event, seeing who answered and joining. Sending those to a third
+party is the same disclosure the expiry rules exist to prevent, by a slower
+route.
+
+`redactURL` in [web/src/lib/analytics.ts](web/src/lib/analytics.ts) rewrites
+`/e/<slug>` and `/g/<slug>` to their patterns and drops query strings and
+fragments outright. Verified against the package's development script, which
+logs payloads rather than sending them: with the redaction, the request carries
+`/e/[slug]`; without it, `/e/mkg3nhce/results`.
+
+Web Analytics has to be enabled for the project in the Vercel dashboard, or the
+script 404s and logs a console notice.
+
 ## Conventions
 
 - Every timestamp is `timestamptz`. No naive datetimes in any layer.
