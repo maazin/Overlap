@@ -25,7 +25,15 @@
 		TIER_LABELS,
 		type Cell
 	} from '$lib/dayparts';
-	import { loadToken, saveToken, loadGroupToken, detectTimezone, allTimezones } from '$lib/identity';
+	import {
+		loadToken,
+		saveToken,
+		clearToken,
+		loadGroupToken,
+		clearGroupToken,
+		detectTimezone,
+		allTimezones
+	} from '$lib/identity';
 	import Loading from '$lib/ui/Loading.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import Card from '$lib/ui/Card.svelte';
@@ -304,6 +312,48 @@
 		stage = 'coarse';
 	}
 
+	/** Whether the "answer as someone else" confirmation is showing. */
+	let switching = $state(false);
+
+	/**
+	 * Hands this device to a different person.
+	 *
+	 * Identity here is a token in localStorage, so a device that has answered
+	 * once is that person forever. That is right for the common case, where
+	 * everyone opens the link on their own phone and reopening it should be an
+	 * edit rather than a second answer. It is wrong for two cases that happen
+	 * constantly: a poll filled in by passing one phone around a table, and the
+	 * organizer testing their own link. Both leave people with no way to say
+	 * "this is not me", and the product looks like it only records one answer.
+	 *
+	 * Only the local token goes. The previous answer is already saved and stays
+	 * exactly as it was; what is lost is this device's ability to edit it,
+	 * which is why this asks first.
+	 */
+	function switchIdentity() {
+		clearToken(slug);
+		// The group token has to go too. load() claims a seat from a cached
+		// membership before it ever asks for a name, so leaving it behind would
+		// silently restore the identity that was just handed over.
+		if (event?.group_slug) clearGroupToken(event.group_slug);
+
+		token = null;
+		switching = false;
+		name = '';
+		coarse = {};
+		fine = {};
+		busySlots = {};
+		calendarURL = '';
+		calendarOpen = false;
+		calendarNote = '';
+		error = '';
+		stage = 'loading';
+
+		// Refetched rather than reasoned about: the server decides who this
+		// device is now, and with no token that is nobody.
+		load();
+	}
+
 	if (browser) load();
 </script>
 
@@ -356,6 +406,34 @@
 				<Card tone="critical">
 					<p class="m-0 text-subhead">{error}</p>
 				</Card>
+			</div>
+		{/if}
+
+		<!-- Who this device is currently answering as.
+		     Shown wherever an identity is already assumed, because without it a
+		     device that has answered once is that person permanently, and the
+		     two ways that bites are ordinary: a poll filled in by passing one
+		     phone around, and an organizer opening the link they just made. -->
+		{#if stage !== 'name' && event.you}
+			<div class="mb-5">
+				{#if switching}
+					<Card tone="caution">
+						<h2 class="m-0 mb-1 text-heading font-semibold">Answer as someone else?</h2>
+						<p class="mt-0 mb-4 text-subhead">
+							{event.you.name}'s answer stays saved. This device just stops being able to change
+							it, so use their own phone or link if they need to edit later.
+						</p>
+						<div class="mb-2">
+							<Button variant="caution" onclick={switchIdentity}>Yes, someone else</Button>
+						</div>
+						<Button variant="quiet" onclick={() => (switching = false)}>Cancel</Button>
+					</Card>
+				{:else}
+					<p class="m-0 text-footnote u-muted">
+						Answering as {event.you.name}.
+						<button class="switchbtn" onclick={() => (switching = true)}>Not you?</button>
+					</p>
+				{/if}
 			</div>
 		{/if}
 
@@ -601,6 +679,20 @@
 {/if}
 
 <style>
+	/* Deliberately understated. It needs to be findable by someone looking for
+	   it and invisible to everyone else, since almost nobody wants it and the
+	   few who do are stuck without it. */
+	.switchbtn {
+		color: var(--ink);
+		text-decoration: underline;
+		text-underline-offset: 0.2em;
+		font: inherit;
+		background: none;
+		border: 0;
+		padding: 0;
+		cursor: pointer;
+	}
+
 	.tzbtn {
 		color: var(--ink);
 		text-decoration: underline;

@@ -111,3 +111,20 @@ export function saveGroupToken(slug: string, token: string): void {
 		/* the response still works; only cross-device recall is lost */
 	}
 }
+
+/**
+ * Forgets a cached group membership.
+ *
+ * Needed when somebody hands this device to another person. Clearing only the
+ * event token would not be enough: the event page claims a seat from a cached
+ * group membership before it asks for a name, so the next load would silently
+ * restore the identity that was just given up.
+ */
+export function clearGroupToken(slug: string): void {
+	if (!browser) return;
+	try {
+		localStorage.removeItem(groupKey(slug));
+	} catch {
+		/* nothing to clean up if storage is unavailable */
+	}
+}
