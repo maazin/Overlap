@@ -1,9 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Overlap">
-  <!-- Two spans of time, and the part they share. Sharp corners and the same
-       ink and pine the interface uses, so the mark sits in the palette rather
-       than beside it. -->
-  <rect width="32" height="32" fill="#f4f1ec"/>
-  <rect x="5" y="9" width="14" height="14" fill="#1b1a17"/>
-  <rect x="13" y="9" width="14" height="14" fill="#24443a" fill-opacity="0.92"/>
-  <rect x="13" y="9" width="6" height="14" fill="#0f1f19"/>
+  <!-- Two spans of time, and the part they share.
+
+       The shared square is the brightest thing in the mark because it is the
+       thing the product is about. Everything else recedes behind it.
+
+       The two blocks are offset diagonally rather than sitting side by side.
+       Side by side and in one tone they merge into a single bar, and the idea
+       of two separate spans disappears; the diagonal offset makes the seam
+       visible without needing a second colour to carry it.
+
+       Every coordinate is even so that at the 16px a favicon is actually drawn
+       at, every edge lands on a whole pixel instead of being softened by
+       antialiasing. The 6-unit margin keeps content clear of the corners for
+       platforms that mask the icon into a rounded rectangle. -->
+  <rect width="32" height="32" fill="#0f1f19"/>
+  <rect x="6" y="6" width="14" height="14" fill="#517666"/>
+  <rect x="12" y="12" width="14" height="14" fill="#517666"/>
+  <rect x="12" y="12" width="8" height="8" fill="#f4f1ec"/>
 </svg>
