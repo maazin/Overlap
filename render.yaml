@@ -1,0 +1,39 @@
+# Render blueprint for the Overlap API.
+#
+# The database is deliberately not defined here. Render's free Postgres expires
+# 30 days after creation and is then deleted, which is a data-loss deadline
+# rather than a free tier. Point DATABASE_URL at a provider whose free plan is
+# permanent instead; Neon is what the README documents.
+#
+# First deploy:
+#   1. Create the database elsewhere and copy its connection string.
+#   2. New > Blueprint in the Render dashboard, point it at this repo.
+#   3. Set DATABASE_URL and WEB_URL, both marked sync: false below.
+#   4. After the web app is deployed, set ALLOWED_ORIGINS to its origin.
+services:
+  - type: web
+    name: overlap-api
+    runtime: docker
+    plan: free
+    rootDir: api
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+
+    envVars:
+      - key: APP_ENV
+        value: production
+
+      # Render terminates TLS in front of the container, so the socket address
+      # is its proxy. Without this every caller shares one rate limit bucket.
+      - key: CLIENT_IP_HEADER
+        value: X-Forwarded-For
+
+      # Set in the dashboard. DATABASE_URL is a credential and does not belong
+      # in a file in a public repo; the other two are not known until the web
+      # app has a URL.
+      - key: DATABASE_URL
+        sync: false
+      - key: WEB_URL
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false

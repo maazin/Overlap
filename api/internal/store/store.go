@@ -29,12 +29,29 @@ func New(ctx context.Context, url string) (*Store, error) {
 		return nil, fmt.Errorf("parse database url: %w", err)
 	}
 
-	// Fly's shared-cpu machines and a small Postgres do not benefit from a
-	// large pool; the cost of too many connections lands on the database.
+	// A small managed Postgres does not benefit from a large pool; the cost of
+	// too many connections lands on the database.
 	cfg.MaxConns = 10
-	cfg.MinConns = 1
+
+	// Zero, not one, and this is load-bearing on a serverless database.
+	//
+	// A floor of one means the pool holds a connection open and the health
+	// check pings it every minute forever. Against a provider that scales
+	// compute to zero after a few minutes of quiet, that heartbeat is activity:
+	// the database never sleeps, and an app with no users still burns its
+	// monthly compute allowance around the clock. Holding no idle connection
+	// costs one connection setup on the next request, which is the correct
+	// trade when the alternative is paying to keep an unused database awake.
+	cfg.MinConns = 0
+
 	cfg.MaxConnLifetime = time.Hour
-	cfg.MaxConnIdleTime = 15 * time.Minute
+
+	// Under the scale-to-zero window most serverless providers use, so the
+	// pool lets a connection go before the far end disappears underneath it.
+	// Releasing early costs a reconnect; discovering it late costs a failed
+	// query on somebody's request.
+	cfg.MaxConnIdleTime = 4 * time.Minute
+
 	cfg.HealthCheckPeriod = time.Minute
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)

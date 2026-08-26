@@ -8,7 +8,7 @@ Build plan and rationale live in `OVERLAP-PRD.md`.
 ## Layout
 
 ```
-api/                 Go 1.26 HTTP API — deploys to Fly.io
+api/                 Go 1.26 HTTP API — deploys to Render or Fly.io
   cmd/api/           main, lifecycle, graceful shutdown
   internal/server/   config, routing, middleware, handlers
   internal/slots/    pure window -> absolute instant expansion (DST lives here)
@@ -155,7 +155,41 @@ handing back a schedule that does not match what was asked for.
 
 Both halves deploy independently. Do the API first — the web app needs its URL.
 
+**Database → Neon**
+
+Any Postgres 16 works. Neon is what these docs assume, because its free plan is
+permanent, needs no card, and allows commercial use. Create a project, copy the
+connection string, keep `sslmode=require`.
+
+Avoid a free database that expires. Render's, for one, is deleted 30 days after
+creation, which is a data-loss deadline wearing a free tier's clothes.
+
+The pool is configured for a database that sleeps. `MinConns` is zero on
+purpose: a floor of one holds a connection open and health-checks it every
+minute, and against a provider that scales compute to zero that heartbeat is
+activity. The database never sleeps, and an app with no users burns its monthly
+compute allowance around the clock.
+
+**API → Render**
+
+The repo has a [render.yaml](render.yaml) blueprint. Point a Blueprint at the
+repo, then set `DATABASE_URL`, `WEB_URL` and `ALLOWED_ORIGINS` in the
+dashboard, since none of the three belong in a file in a public repo or are
+known before the web app exists.
+
+Free instances spin down after 15 minutes of inactivity and take roughly 30 to
+60 seconds to come back. Read that number against how this product is used: the
+link goes into a group chat, and the first person to tap it waits out the cold
+start on a blank screen. Everything after that is warm. The API is a single
+static binary that migrates on boot, so the wait is the platform starting a
+container rather than anything in the app.
+
 **API → Fly.io**
+
+Still supported, and [api/fly.toml](api/fly.toml) is unchanged. It costs money,
+because `auto_stop_machines = 'off'` with `min_machines_running = 1` keeps a
+machine up around the clock. That buys the thing Render's free tier gives up:
+no cold start, and an SSE stream nothing suspends underneath.
 
 ```bash
 cd api
@@ -165,10 +199,12 @@ fly secrets set ALLOWED_ORIGINS=https://<your-vercel-domain> WEB_URL=https://<yo
 fly deploy
 ```
 
-`fly postgres attach` sets `DATABASE_URL` itself. The image is a small `scratch`
-build; it carries the CA bundle and Go's zoneinfo database explicitly, because
-without zoneinfo every `time.LoadLocation` call fails and the entire slot model
-breaks in a way that never shows up locally.
+`fly postgres attach` sets `DATABASE_URL` itself.
+
+**Either way**, the image is a small `scratch` build carrying the CA bundle and
+Go's zoneinfo database explicitly, because without zoneinfo every
+`time.LoadLocation` call fails and the entire slot model breaks in a way that
+never shows up locally. It reads `PORT`, so any host that injects one works.
 
 Both secrets above are required and fail differently. `ALLOWED_ORIGINS` failing
 is loud, since every browser request is refused at once. `WEB_URL` failing is
@@ -203,11 +239,18 @@ write on the hot path of every request against the same small database it is
 protecting, and this enforces no quota anyone paid for, so losing counters on a
 deploy costs nothing an abuser can use.
 
-Set `CLIENT_IP_HEADER` wherever a proxy sits in front. It is empty by default
-because trusting a header nothing upstream overwrites lets a client mint a
-fresh bucket per request, and on Fly it is `Fly-Client-IP`, already set in
-fly.toml. Getting this wrong is quiet in the wrong direction: with no header
-configured behind a proxy, every user shares one bucket.
+Set `CLIENT_IP_HEADER` wherever a proxy sits in front: `Fly-Client-IP` on Fly,
+`X-Forwarded-For` on Render, both already set in their config files. It is
+empty by default because trusting a header nothing upstream overwrites lets a
+client mint a fresh bucket per request. Getting it wrong is quiet in the wrong
+direction: with no header configured behind a proxy, every user shares one
+bucket.
+
+The header is read from its **rightmost** entry. A proxy appends the address it
+received from, so on `X-Forwarded-For` the last entry is the one our proxy
+wrote and anything left of it came from the caller. Reading from the left lets
+anyone prepend a value and pick their own bucket. This assumes one trusted
+proxy; behind two, prefer a single-value header the platform overwrites.
 
 `GET /api/groups/{slug}/proposal` needs a different control, because it takes
 no token and one call refreshes every connected member's calendar. A per-caller

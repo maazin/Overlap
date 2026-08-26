@@ -20,11 +20,26 @@ import (
 func (s *Server) clientIP(r *http.Request) string {
 	if h := s.cfg.ClientIPHeader; h != "" {
 		if v := strings.TrimSpace(r.Header.Get(h)); v != "" {
-			// X-Forwarded-For style lists: the leftmost entry is the original
-			// client. Trustworthy only because the configured proxy is what
-			// wrote the list.
-			if comma := strings.IndexByte(v, ','); comma >= 0 {
-				v = strings.TrimSpace(v[:comma])
+			// The rightmost entry, not the leftmost.
+			//
+			// This looks backwards and is the whole point. A proxy appends the
+			// address it received the request from, so on X-Forwarded-For the
+			// last entry is the one our own proxy wrote and everything to its
+			// left was supplied by whoever called it. A client that sends
+			// "X-Forwarded-For: 1.2.3.4" gets "1.2.3.4, <their real address>",
+			// so reading from the left hands every caller a rate limit bucket
+			// of their own choosing, which is the same as having no limiter.
+			//
+			// For a single-value header the platform overwrites, such as
+			// Fly-Client-IP, the rightmost entry is the only entry, so this is
+			// correct there too.
+			//
+			// It assumes exactly one trusted proxy in front. Behind two, the
+			// last entry is the inner proxy rather than the client, and the
+			// symptom is everyone sharing a bucket again. Prefer a single-value
+			// header the platform guarantees to overwrite wherever one exists.
+			if comma := strings.LastIndexByte(v, ','); comma >= 0 {
+				v = strings.TrimSpace(v[comma+1:])
 			}
 			return v
 		}

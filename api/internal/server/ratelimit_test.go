@@ -173,3 +173,51 @@ func TestLimiterDisabledWhenRateIsZero(t *testing.T) {
 		t.Error("a zero RateLimitPerMinute must leave the limiter nil")
 	}
 }
+
+// TestForwardedForCannotBeSpoofed is the reason clientIP reads the rightmost
+// entry. A proxy appends the address it saw, so anything to the left of the
+// last entry was written by the caller. Reading from the left would let anyone
+// mint a fresh bucket per request by prepending a value, which is the same as
+// running with no limiter at all.
+func TestForwardedForCannotBeSpoofed(t *testing.T) {
+	srv := limitedServer(1, "X-Forwarded-For")
+	routes := srv.Routes()
+
+	// One real client, changing the part of the header they control.
+	send := func(spoofed string) int {
+		r := createRequest("10.0.0.1")
+		r.Header.Set("X-Forwarded-For", spoofed+", 203.0.113.77")
+		rec := httptest.NewRecorder()
+		routes.ServeHTTP(rec, r)
+		return rec.Code
+	}
+
+	if code := send("198.51.100.1"); code == http.StatusTooManyRequests {
+		t.Fatal("first request limited immediately")
+	}
+	if code := send("198.51.100.2"); code != http.StatusTooManyRequests {
+		t.Errorf("status = %d, want 429; prepending a value bought a fresh bucket", code)
+	}
+}
+
+// TestForwardedForReadsTheRealClient is the other half: two genuinely
+// different clients behind the same proxy must not share a bucket.
+func TestForwardedForReadsTheRealClient(t *testing.T) {
+	srv := limitedServer(1, "X-Forwarded-For")
+	routes := srv.Routes()
+
+	send := func(client string) int {
+		r := createRequest("10.0.0.1")
+		r.Header.Set("X-Forwarded-For", client)
+		rec := httptest.NewRecorder()
+		routes.ServeHTTP(rec, r)
+		return rec.Code
+	}
+
+	if code := send("203.0.113.80"); code == http.StatusTooManyRequests {
+		t.Fatal("first client limited immediately")
+	}
+	if code := send("203.0.113.81"); code == http.StatusTooManyRequests {
+		t.Error("a second client behind the same proxy shared the first one's bucket")
+	}
+}
