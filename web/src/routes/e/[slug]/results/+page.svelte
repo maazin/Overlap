@@ -17,6 +17,7 @@
 	import { groupByDay, slotLabel, BLOCKS } from '$lib/dayparts';
 	import { loadToken, detectTimezone, saveGroupToken } from '$lib/identity';
 	import { subscribe } from '$lib/live';
+	import Loading from '$lib/ui/Loading.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import Card from '$lib/ui/Card.svelte';
 	import Field from '$lib/ui/Field.svelte';
@@ -390,7 +391,7 @@
 			</Button>
 		</div>
 	{:else}
-		<p class="py-20 text-center text-subhead u-faint">Loading</p>
+		<Loading />
 	{/if}
 </div>
 

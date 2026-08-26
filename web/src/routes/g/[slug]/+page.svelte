@@ -11,6 +11,7 @@
 		type GroupView
 	} from '$lib/api';
 	import { loadGroupToken, saveGroupToken, detectTimezone } from '$lib/identity';
+	import Loading from '$lib/ui/Loading.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import Card from '$lib/ui/Card.svelte';
 	import Field from '$lib/ui/Field.svelte';
@@ -124,7 +125,7 @@
 
 <div class="u-column pt-8 pb-16">
 	{#if !group}
-		<p class="py-20 text-center text-subhead u-faint">Loading</p>
+		<Loading />
 	{:else}
 		<PageHeader title={group.name}>
 			{group.members.length} member{group.members.length === 1 ? '' : 's'}

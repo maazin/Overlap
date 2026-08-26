@@ -26,6 +26,7 @@
 		type Cell
 	} from '$lib/dayparts';
 	import { loadToken, saveToken, loadGroupToken, detectTimezone, allTimezones } from '$lib/identity';
+	import Loading from '$lib/ui/Loading.svelte';
 	import Button from '$lib/ui/Button.svelte';
 	import Card from '$lib/ui/Card.svelte';
 	import Field from '$lib/ui/Field.svelte';
@@ -320,7 +321,7 @@
 
 <div class="u-column pt-8 pb-52">
 	{#if stage === 'loading'}
-		<p class="py-20 text-center text-subhead u-faint">Loading</p>
+		<Loading />
 	{:else if stage === 'error'}
 		<Card tone="critical">
 			<h2 class="m-0 text-heading font-semibold">This link did not open</h2>
