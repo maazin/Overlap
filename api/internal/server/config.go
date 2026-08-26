@@ -39,14 +39,21 @@ type Config struct {
 	// sweeper entirely.
 	PurgeInterval time.Duration
 
-	// ClientIPHeader names the header carrying the real client address.
+	// ClientIPHeaders names the headers that may carry the real client
+	// address, in order of preference. The first one present on a request
+	// wins.
 	//
 	// Empty by default, which means the socket address is used. That default
 	// is the safe one: trusting a header nobody upstream overwrites lets a
-	// client hand itself a fresh rate limit bucket per request. Set it only
-	// when a proxy in front of this server rewrites it on every request, which
-	// on Fly is Fly-Client-IP.
-	ClientIPHeader string
+	// client hand itself a fresh rate limit bucket per request. Set it only to
+	// headers a proxy in front of this server rewrites on every request:
+	// Fly-Client-IP on Fly, True-Client-IP or CF-Connecting-IP behind the
+	// Cloudflare that Render runs on.
+	//
+	// Prefer single-value headers. X-Forwarded-For is a list, and behind two
+	// proxies its last entry is an internal hop that can change per request,
+	// which gives every request its own bucket and quietly disables limiting.
+	ClientIPHeaders []string
 
 	// RateLimitBurst is how many requests one address may make at once, and
 	// RateLimitPerMinute the sustained rate it refills at. Zero per-minute
@@ -79,7 +86,7 @@ func ConfigFromEnv() Config {
 		RunMigrations:             env("RUN_MIGRATIONS", "true") != "false",
 		PurgeInterval:             duration("PURGE_INTERVAL", 6*time.Hour),
 
-		ClientIPHeader: os.Getenv("CLIENT_IP_HEADER"),
+		ClientIPHeaders: splitList(os.Getenv("CLIENT_IP_HEADER")),
 
 		// Sized for the shape of real use rather than for a guess at a limit.
 		// Answering a poll is a handful of writes spread over a minute or two,

@@ -239,18 +239,25 @@ write on the hot path of every request against the same small database it is
 protecting, and this enforces no quota anyone paid for, so losing counters on a
 deploy costs nothing an abuser can use.
 
-Set `CLIENT_IP_HEADER` wherever a proxy sits in front: `Fly-Client-IP` on Fly,
-`X-Forwarded-For` on Render, both already set in their config files. It is
-empty by default because trusting a header nothing upstream overwrites lets a
-client mint a fresh bucket per request. Getting it wrong is quiet in the wrong
-direction: with no header configured behind a proxy, every user shares one
+Set `CLIENT_IP_HEADER` wherever a proxy sits in front. It takes a
+comma-separated list and the first header present on a request wins:
+`Fly-Client-IP` on Fly, `True-Client-IP, CF-Connecting-IP` on Render, both
+already set in their config files. It is empty by default because trusting a
+header nothing upstream overwrites lets a client mint a fresh bucket per
+request.
+
+Each header is read from its **rightmost** entry, because a proxy appends the
+address it received from, so anything left of the last entry came from the
+caller. Reading from the left lets anyone prepend a value and pick their own
 bucket.
 
-The header is read from its **rightmost** entry. A proxy appends the address it
-received from, so on `X-Forwarded-For` the last entry is the one our proxy
-wrote and anything left of it came from the caller. Reading from the left lets
-anyone prepend a value and pick their own bucket. This assumes one trusted
-proxy; behind two, prefer a single-value header the platform overwrites.
+Name single-value headers the proxy overwrites, and avoid `X-Forwarded-For`.
+It is a list, and behind two proxies its last entry is an internal hop that
+changes between requests, so every request gets its own bucket and nothing is
+ever limited. Render was configured that way at first, and 45 concurrent
+requests against production returned zero refusals. Both failure directions are
+silent, which is why this is worth checking against the deployed service rather
+than reasoning about.
 
 `GET /api/groups/{slug}/proposal` needs a different control, because it takes
 no token and one call refreshes every connected member's calendar. A per-caller

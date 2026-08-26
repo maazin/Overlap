@@ -10,11 +10,11 @@ import (
 	"testing"
 )
 
-func limitedServer(burst int, header string) *Server {
+func limitedServer(burst int, headers ...string) *Server {
 	return New(Config{
 		Env:                "test",
 		AllowedOrigins:     []string{"http://localhost:5173"},
-		ClientIPHeader:     header,
+		ClientIPHeaders:    headers,
 		RateLimitBurst:     burst,
 		RateLimitPerMinute: 60,
 		RateLimitMaxKeys:   100,
@@ -32,7 +32,7 @@ func createRequest(from string) *http.Request {
 }
 
 func TestRateLimitRefusesPastTheBurst(t *testing.T) {
-	srv := limitedServer(3, "")
+	srv := limitedServer(3)
 	routes := srv.Routes()
 
 	for i := range 3 {
@@ -59,7 +59,7 @@ func TestRateLimitRefusesPastTheBurst(t *testing.T) {
 }
 
 func TestRateLimitIsPerAddress(t *testing.T) {
-	srv := limitedServer(1, "")
+	srv := limitedServer(1)
 	routes := srv.Routes()
 
 	rec := httptest.NewRecorder()
@@ -105,7 +105,7 @@ func TestRateLimitUsesConfiguredHeader(t *testing.T) {
 // the default is empty. If the header were always trusted, anyone could mint a
 // fresh bucket per request by making one up.
 func TestClientIPHeaderIgnoredWhenUnconfigured(t *testing.T) {
-	srv := limitedServer(1, "")
+	srv := limitedServer(1)
 	routes := srv.Routes()
 
 	send := func(claimed string) int {
@@ -127,7 +127,7 @@ func TestClientIPHeaderIgnoredWhenUnconfigured(t *testing.T) {
 // TestPreflightIsNotRateLimited keeps a browser from spending its budget
 // twice for one real request.
 func TestPreflightIsNotRateLimited(t *testing.T) {
-	srv := limitedServer(1, "")
+	srv := limitedServer(1)
 	routes := srv.Routes()
 
 	for range 5 {
@@ -151,7 +151,7 @@ func TestPreflightIsNotRateLimited(t *testing.T) {
 // TestReadsAreNotRateLimited pins the scope. Limiting reads would throttle
 // people watching a poll they are already part of.
 func TestReadsAreNotRateLimited(t *testing.T) {
-	srv := limitedServer(1, "")
+	srv := limitedServer(1)
 	routes := srv.Routes()
 
 	for i := range 10 {
@@ -219,5 +219,70 @@ func TestForwardedForReadsTheRealClient(t *testing.T) {
 	}
 	if code := send("203.0.113.81"); code == http.StatusTooManyRequests {
 		t.Error("a second client behind the same proxy shared the first one's bucket")
+	}
+}
+
+// TestFirstPresentHeaderWins covers the deployment reality that a platform
+// offers several address headers and not every request carries all of them.
+func TestFirstPresentHeaderWins(t *testing.T) {
+	srv := limitedServer(1, "True-Client-IP", "CF-Connecting-IP")
+	routes := srv.Routes()
+
+	send := func(set func(*http.Request)) int {
+		r := createRequest("10.0.0.1")
+		set(r)
+		rec := httptest.NewRecorder()
+		routes.ServeHTTP(rec, r)
+		return rec.Code
+	}
+
+	// Preferred header present: it decides.
+	if code := send(func(r *http.Request) {
+		r.Header.Set("True-Client-IP", "203.0.113.90")
+		r.Header.Set("CF-Connecting-IP", "198.51.100.90")
+	}); code == http.StatusTooManyRequests {
+		t.Fatal("first request limited immediately")
+	}
+
+	// Same True-Client-IP, different fallback. Still the same bucket, so the
+	// fallback must not have been consulted.
+	if code := send(func(r *http.Request) {
+		r.Header.Set("True-Client-IP", "203.0.113.90")
+		r.Header.Set("CF-Connecting-IP", "198.51.100.91")
+	}); code != http.StatusTooManyRequests {
+		t.Errorf("status = %d, want 429; the preferred header did not decide the bucket", code)
+	}
+
+	// Preferred header absent: fall through to the next one rather than
+	// silently dropping to the proxy's own address, which would put every
+	// caller in one bucket.
+	if code := send(func(r *http.Request) {
+		r.Header.Set("CF-Connecting-IP", "198.51.100.92")
+	}); code == http.StatusTooManyRequests {
+		t.Error("a request with only the fallback header shared the other bucket")
+	}
+}
+
+// TestNonAddressHeaderIsIgnored keeps obvious garbage from becoming a bucket.
+// A header carrying something that is not an address is not evidence about who
+// is calling.
+func TestNonAddressHeaderIsIgnored(t *testing.T) {
+	srv := limitedServer(1, "True-Client-IP")
+	routes := srv.Routes()
+
+	send := func(v string) int {
+		r := createRequest("203.0.113.95")
+		r.Header.Set("True-Client-IP", v)
+		rec := httptest.NewRecorder()
+		routes.ServeHTTP(rec, r)
+		return rec.Code
+	}
+
+	if code := send("not-an-ip"); code == http.StatusTooManyRequests {
+		t.Fatal("first request limited immediately")
+	}
+	// Both fell back to the same RemoteAddr, so the second must be limited.
+	if code := send("also-not-an-ip"); code != http.StatusTooManyRequests {
+		t.Errorf("status = %d, want 429; garbage header values became distinct buckets", code)
 	}
 }
