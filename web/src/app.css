@@ -64,7 +64,7 @@
 
   --ink: #1b1a17;
   --ink-muted: #5f5a53;
-  --ink-faint: #8a837a;
+  --ink-faint: #716b64;
   --on-accent: #f6f4f0;
   /* Text on a deep ground. Stays light in both schemes, because the ground it
      sits on is dark in both: defining it only under prefers-color-scheme would
@@ -110,7 +110,7 @@
 
     --ink: #f4f1eb;
     --ink-muted: #a9a29a;
-    --ink-faint: #7c766e;
+    --ink-faint: #867f77;
     --on-accent: #121110;
     --on-deep: #e8efea;
 
